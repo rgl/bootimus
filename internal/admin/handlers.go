@@ -194,6 +194,12 @@ func buildStartnetScript(serverAddr, shareName string, smbPort, httpPort int, is
 	scriptTemplate := template.Must(template.New("script").Parse(`@echo off
 setlocal EnableDelayedExpansion
 
+if exist x:\drivers (
+	echo Loading drivers...
+	reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion\UnattendSettings\PnPUnattend\DriverPaths\1" /v Path /t REG_SZ /d x:\drivers /f >nul 2>&1
+	PnPUnattend auditSystem /l
+)
+
 wpeinit
 
 rem Windows 11 24H2+ WinPE ships with insecure guest auth disabled and SMB
@@ -258,6 +264,8 @@ if not exist Z:\setup.exe (
 )
 
 set SETUP_ARGS=
+
+if exist x:\drivers set SETUP_ARGS=!SETUP_ARGS! /installdrivers x:\drivers
 
 {{- if .AutoInstall }}
 
