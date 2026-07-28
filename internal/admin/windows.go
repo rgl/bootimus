@@ -109,7 +109,7 @@ func (h *Handler) RebuildBootWim(imageID uint) error {
 
 		log.Printf("  Updating image %d...", idx)
 		extractCmd := exec.Command("wimupdate", bootWimPath, fmt.Sprintf("%d", idx))
-		extractCmd.Stdin = strings.NewReader(fmt.Sprintf("add \"%s\" \"/Windows/System32/DriverStore/FileRepository\"\n", driversDir))
+		extractCmd.Stdin = strings.NewReader(fmt.Sprintf("add \"%s\" \"/drivers\"\n", driversDir))
 		if output, err := extractCmd.CombinedOutput(); err != nil {
 			log.Printf("wimupdate output: %s", string(output))
 			return fmt.Errorf("failed to update WIM image %d: %w", idx, err)
