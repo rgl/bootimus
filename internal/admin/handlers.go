@@ -189,6 +189,8 @@ func buildStartnetScript(serverAddr, shareName string, smbPort, httpPort int, is
 		httpPort = 8080
 	}
 
+	// NB to use a non-default smb port, windows 11 24H2 (or later) or windows server 2025 (or later) is required.
+	// see https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-ports?tabs=command-line
 	scriptTemplate := template.Must(template.New("script").Parse(`@echo off
 setlocal EnableDelayedExpansion
 
@@ -230,7 +232,7 @@ set /a TRIES=0
 :mapshare
 rem Expected to fail with "System error 53" for the first few tries while the
 rem SMB client stack and the server's 445 path come up — the loop handles it.
-net use Z: \\{{ .ServerAddr }}\{{ .ShareName }} /persistent:no >nul 2>&1
+net use Z: \\{{ .ServerAddr }}\{{ .ShareName }} /persistent:no{{ if ne .SmbPort 445 }} /tcpport:{{ .SmbPort }}{{ end }} >nul 2>&1
 if not errorlevel 1 goto mapped
 set /a TRIES+=1
 if %TRIES% geq 30 goto mapfail
@@ -240,7 +242,7 @@ goto mapshare
 :mapfail
 echo.
 echo ERROR: Failed to connect to \\{{ .ServerAddr }}\{{ .ShareName }} after 90 seconds (SMB port {{ .SmbPort }})
-echo Dropping to shell for debugging. Try: net use Z: \\{{ .ServerAddr }}\{{ .ShareName }} /persistent:no
+echo Dropping to shell for debugging. Try: net use Z: \\{{ .ServerAddr }}\{{ .ShareName }} /persistent:no{{ if ne .SmbPort 445 }} /tcpport:{{ .SmbPort }}{{ end }}
 echo Type 'exit' to reboot.
 cmd.exe
 exit /b 1
@@ -276,10 +278,12 @@ Z:\setup.exe !SETUP_ARGS!
 	err := scriptTemplate.Execute(&buf, &struct {
 		ServerAddr  string
 		ShareName   string
+		SmbPort     int
 		AutoInstall bool
 	}{
 		ServerAddr:  serverAddr,
 		ShareName:   shareName,
+		SmbPort:     smbPort,
 		AutoInstall: autoInstall,
 	})
 	if err != nil {
