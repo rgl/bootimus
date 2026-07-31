@@ -16,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -858,6 +859,22 @@ func (h *Handler) UpdateImage(w http.ResponseWriter, r *http.Request) {
 		image.AutoInstallFile = aiFile
 		image.AutoInstallEnabled = aiFile != "" || image.AutoInstallScript != ""
 	}
+	if kernelOverride, ok := updates["kernel_override"].(string); ok {
+		resolved, err := h.resolveBootFileOverride(filename, kernelOverride)
+		if err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: fmt.Sprintf("Invalid kernel override: %v", err)})
+			return
+		}
+		image.KernelOverride = resolved
+	}
+	if initrdOverride, ok := updates["initrd_override"].(string); ok {
+		resolved, err := h.resolveBootFileOverride(filename, initrdOverride)
+		if err != nil {
+			h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: fmt.Sprintf("Invalid initrd override: %v", err)})
+			return
+		}
+		image.InitrdOverride = resolved
+	}
 
 	if err := h.storage.UpdateImage(filename, image); err != nil {
 		h.sendJSON(w, http.StatusInternalServerError, Response{Success: false, Error: err.Error()})
@@ -866,6 +883,98 @@ func (h *Handler) UpdateImage(w http.ResponseWriter, r *http.Request) {
 
 	log.Printf("Image updated: %s (enabled=%v, public=%v)", filename, image.Enabled, image.Public)
 	h.sendJSON(w, http.StatusOK, Response{Success: true, Message: "Image updated", Data: image})
+}
+
+func (h *Handler) resolveBootFileOverride(filename, rel string) (string, error) {
+	if rel == "" {
+		return "", nil
+	}
+	rel = strings.Trim(filepath.ToSlash(rel), "/")
+	if rel == "" || strings.Contains(rel, "..") {
+		return "", fmt.Errorf("invalid path")
+	}
+	isoBase := strings.TrimSuffix(filename, filepath.Ext(filename))
+	baseDir := filepath.Clean(filepath.Join(h.isoDir, isoBase))
+	fullPath := filepath.Clean(filepath.Join(baseDir, filepath.FromSlash(rel)))
+	if !strings.HasPrefix(fullPath, baseDir+string(filepath.Separator)) {
+		return "", fmt.Errorf("invalid path")
+	}
+	info, err := os.Stat(fullPath)
+	if err != nil {
+		return "", fmt.Errorf("file not found: %s", rel)
+	}
+	if info.IsDir() {
+		return "", fmt.Errorf("not a file: %s", rel)
+	}
+	return rel, nil
+}
+
+func (h *Handler) BootFileCandidates(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		h.sendJSON(w, http.StatusMethodNotAllowed, Response{Success: false, Error: "Method not allowed"})
+		return
+	}
+
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		h.sendJSON(w, http.StatusBadRequest, Response{Success: false, Error: "Missing filename parameter"})
+		return
+	}
+
+	image, err := h.storage.GetImage(filename)
+	if err != nil {
+		h.sendJSON(w, http.StatusNotFound, Response{Success: false, Error: "Image not found"})
+		return
+	}
+
+	type bootFileCandidate struct {
+		Path string `json:"path"`
+		Size int64  `json:"size"`
+	}
+
+	isoBase := strings.TrimSuffix(filename, filepath.Ext(filename))
+	baseDir := filepath.Join(h.isoDir, isoBase)
+	extractedDir := filepath.Join(baseDir, "iso")
+
+	excludedExts := map[string]bool{".deb": true, ".udeb": true, ".rpm": true, ".mod": true, ".txt": true, ".sig": true}
+
+	kernels := []bootFileCandidate{}
+	initrds := []bootFileCandidate{}
+	filepath.Walk(extractedDir, func(path string, info os.FileInfo, err error) error {
+		if err != nil {
+			return nil
+		}
+		if info.IsDir() {
+			if strings.EqualFold(info.Name(), "pool") || strings.EqualFold(info.Name(), "pool_udeb") {
+				return filepath.SkipDir
+			}
+			return nil
+		}
+		if excludedExts[strings.ToLower(filepath.Ext(info.Name()))] {
+			return nil
+		}
+		rel, relErr := filepath.Rel(baseDir, path)
+		if relErr != nil {
+			return nil
+		}
+		candidate := bootFileCandidate{Path: filepath.ToSlash(rel), Size: info.Size()}
+		if extractor.IsKernelFileName(info.Name()) {
+			kernels = append(kernels, candidate)
+		} else if extractor.IsInitrdFileName(info.Name()) {
+			initrds = append(initrds, candidate)
+		}
+		return nil
+	})
+
+	sort.Slice(kernels, func(i, j int) bool { return kernels[i].Path < kernels[j].Path })
+	sort.Slice(initrds, func(i, j int) bool { return initrds[i].Path < initrds[j].Path })
+
+	h.sendJSON(w, http.StatusOK, Response{Success: true, Data: map[string]any{
+		"kernels":         kernels,
+		"initrds":         initrds,
+		"kernel_override": image.KernelOverride,
+		"initrd_override": image.InitrdOverride,
+	}})
 }
 
 func (h *Handler) DeleteImage(w http.ResponseWriter, r *http.Request) {

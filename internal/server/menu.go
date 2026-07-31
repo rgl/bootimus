@@ -324,8 +324,18 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 		sb.WriteString("boot || goto failed\n")
 
 	default:
-		sb.WriteString(fmt.Sprintf("kernel %s/boot/%s/vmlinuz%s%s\n", baseURL, cacheDir, autoInstallParam, bootParams))
-		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/initrd\n", baseURL, cacheDir))
+		kernelPath := "vmlinuz"
+		if img.KernelOverride != "" {
+			kernelPath = encodePathSegments(img.KernelOverride)
+		}
+		initrdPath := "initrd"
+		initrdName := ""
+		if img.InitrdOverride != "" {
+			initrdPath = encodePathSegments(img.InitrdOverride)
+			initrdName = " initrd"
+		}
+		sb.WriteString(fmt.Sprintf("kernel %s/boot/%s/%s%s%s\n", baseURL, cacheDir, kernelPath, autoInstallParam, bootParams))
+		sb.WriteString(fmt.Sprintf("initrd %s/boot/%s/%s%s\n", baseURL, cacheDir, initrdPath, initrdName))
 		sb.WriteString("boot || goto failed\n")
 	}
 
