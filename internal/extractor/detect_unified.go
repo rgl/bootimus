@@ -109,7 +109,59 @@ func detectDistroNameUnified(reader FileSystemReader, isoPath string) string {
 	return ""
 }
 
+func (e *Extractor) detectLiveDebianUnified(reader FileSystemReader) *BootFiles {
+	entries, err := reader.ListDirectory("/live")
+	if err != nil || entries == nil {
+		return nil
+	}
+
+	var kernel, versionedKernel, initrd, versionedInitrd, squashfs string
+	for _, entry := range entries {
+		if entry.IsDir {
+			continue
+		}
+		name := strings.ToLower(entry.Name)
+		path := "/live/" + entry.Name
+		switch {
+		case name == "vmlinuz":
+			kernel = path
+		case strings.HasPrefix(name, "vmlinuz-") && versionedKernel == "":
+			versionedKernel = path
+		case name == "initrd.img" || name == "initrd":
+			initrd = path
+		case (strings.HasPrefix(name, "initrd.img-") || strings.HasPrefix(name, "initrd-")) && versionedInitrd == "":
+			versionedInitrd = path
+		case strings.HasPrefix(name, "filesystem.squashfs"):
+			squashfs = path
+		case strings.HasSuffix(name, ".squashfs") && squashfs == "":
+			squashfs = path
+		}
+	}
+
+	if versionedKernel != "" {
+		kernel = versionedKernel
+	}
+	if versionedInitrd != "" {
+		initrd = versionedInitrd
+	}
+	if kernel == "" || initrd == "" || squashfs == "" {
+		return nil
+	}
+
+	log.Printf("Detected Debian live system: kernel=%s initrd=%s squashfs=%s", kernel, initrd, squashfs)
+	return &BootFiles{
+		Kernel:       kernel,
+		Initrd:       initrd,
+		Distro:       "debian",
+		SquashfsPath: squashfs,
+	}
+}
+
 func (e *Extractor) detectUbuntuDebianUnified(reader FileSystemReader) (*BootFiles, error) {
+	if files := e.detectLiveDebianUnified(reader); files != nil {
+		return files, nil
+	}
+
 	paths := []struct {
 		kernel     string
 		initrd     string
@@ -141,6 +193,10 @@ func (e *Extractor) detectUbuntuDebianUnified(reader FileSystemReader) (*BootFil
 				BootParams:      p.bootParams,
 				NetbootRequired: p.netboot,
 				NetbootURL:      p.netbootURL,
+			}
+			squashfs := parentDir(p.kernel) + "/filesystem.squashfs"
+			if reader.FileExists(squashfs) {
+				bootFiles.SquashfsPath = squashfs
 			}
 			return bootFiles, nil
 		}
@@ -524,5 +580,44 @@ func (e *Extractor) cacheBootFilesUnified(files *BootFiles, reader FileSystemRea
 
 	files.ExtractedDir = extractedDir
 
+	if files.SquashfsPath != "" {
+		if rel := resolveExtractedRelPath(bootFilesDir, files.SquashfsPath); rel != "" {
+			files.SquashfsPath = rel
+		} else {
+			log.Printf("Warning: squashfs %s not found in extracted ISO contents", files.SquashfsPath)
+			files.SquashfsPath = ""
+		}
+	}
+
 	return nil
+}
+
+func resolveExtractedRelPath(bootFilesDir, isoPath string) string {
+	rel := "iso"
+	cur := filepath.Join(bootFilesDir, "iso")
+	for _, part := range strings.Split(strings.TrimPrefix(isoPath, "/"), "/") {
+		if part == "" {
+			continue
+		}
+		entries, err := os.ReadDir(cur)
+		if err != nil {
+			return ""
+		}
+		match := ""
+		for _, entry := range entries {
+			if entry.Name() == part {
+				match = part
+				break
+			}
+			if match == "" && strings.EqualFold(entry.Name(), part) {
+				match = entry.Name()
+			}
+		}
+		if match == "" {
+			return ""
+		}
+		rel = rel + "/" + match
+		cur = filepath.Join(cur, match)
+	}
+	return rel
 }
