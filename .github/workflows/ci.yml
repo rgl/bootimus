@@ -1,11 +1,15 @@
 name: CI
 
-# Runs on every push to a non-main branch. Tag pushes are handled by
-# release.yml; main only receives merges that have already passed here.
+# Runs on every branch push and on pull requests into main (which test the
+# merged result). Tag pushes are handled by release.yml, which stamps the
+# version and pushes the container image.
 
 on:
   push:
-    branches-ignore:
+    branches:
+      - "**"
+  pull_request:
+    branches:
       - main
 
 permissions:
@@ -31,3 +35,20 @@ jobs:
 
       - name: Build
         run: make build
+
+  docker:
+    name: Docker build (no push)
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: false
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
