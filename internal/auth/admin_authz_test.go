@@ -12,9 +12,11 @@ type fakeUserStore struct {
 	users map[string]*models.User
 }
 
-func (f *fakeUserStore) EnsureAdminUser() (string, string, bool, error) { return "admin", "", false, nil }
-func (f *fakeUserStore) ResetAdminPassword() (string, error)            { return "", nil }
-func (f *fakeUserStore) UpdateUserLastLogin(string) error               { return nil }
+func (f *fakeUserStore) EnsureAdminUser() (string, string, bool, error) {
+	return "admin", "", false, nil
+}
+func (f *fakeUserStore) ResetAdminPassword() (string, error) { return "", nil }
+func (f *fakeUserStore) UpdateUserLastLogin(string) error    { return nil }
 func (f *fakeUserStore) GetUser(username string) (*models.User, error) {
 	u, ok := f.users[username]
 	if !ok {

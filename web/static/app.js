@@ -2769,13 +2769,14 @@ const API_REFERENCE = [
     ]},
     { category: 'Images', endpoints: [
         { method: 'GET',    path: '/api/images',                   desc: 'List all images. Add <code>?filename={fn}</code> for one.' },
-        { method: 'PUT',    path: '/api/images?filename={fn}',     desc: 'Partial update. Fields: name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file.' },
+        { method: 'PUT',    path: '/api/images?filename={fn}',     desc: 'Partial update. Fields: name, description, enabled, public, group_id, order, boot_method, distro, boot_params, auto_install_file, kernel_override, initrd_override.' },
         { method: 'DELETE', path: '/api/images?filename={fn}',     desc: 'Delete image. Add <code>&delete_file=true</code> to also remove the ISO.' },
         { method: 'POST',   path: '/api/images/upload',            desc: 'Multipart: <code>file</code>, <code>public</code>, <code>description</code>.' },
         { method: 'POST',   path: '/api/images/download',          desc: 'Body: <code>{url, filename, description}</code>. filename is optional. Async download.' },
         { method: 'POST',   path: '/api/images/extract?filename={fn}', desc: 'Extract kernel/initrd from ISO.' },
         { method: 'GET',    path: '/api/images/extract-progress?filename={fn}', desc: 'Extraction progress.' },
         { method: 'POST',   path: '/api/images/redetect?filename={fn}', desc: 'Re-run distro detection and boot-param resolution.' },
+        { method: 'GET',    path: '/api/images/boot-candidates?filename={fn}', desc: 'List kernel/initrd files found in the extracted ISO for override selection.' },
         { method: 'POST',   path: '/api/images/patch-smb?filename={fn}', desc: 'Patch boot.wim for Windows SMB install.' },
         { method: 'POST',   path: '/api/images/boot-method?filename={fn}', desc: 'Body: <code>{method}</code> (sanboot/kernel/nbd/nfs).' },
         { method: 'POST',   path: '/api/images/netboot/download?filename={fn}', desc: 'Fetch netboot kernel/initrd from distro mirror.' },
@@ -5147,6 +5148,8 @@ async function showImagePropertiesModal(filename, opts) {
     document.getElementById('image-props-enabled').checked = img.enabled;
     document.getElementById('image-props-public').checked = img.public;
 
+    await populateBootFileOverrides(img);
+
     applyBootParamsWindowsLock(distroSelect.value);
     distroSelect.onchange = () => applyBootParamsWindowsLock(distroSelect.value);
 
@@ -5209,6 +5212,40 @@ async function showImagePropertiesModal(filename, opts) {
 }
 
 let _imagePropsState = null;
+
+async function populateBootFileOverrides(img) {
+    const row = document.getElementById('image-props-bootfiles-row');
+    const kernelSelect = document.getElementById('image-props-kernel-override');
+    const initrdSelect = document.getElementById('image-props-initrd-override');
+    const autoOption = `<option value="">${t('props.field.bootfile_auto')}</option>`;
+    kernelSelect.innerHTML = autoOption;
+    initrdSelect.innerHTML = autoOption;
+
+    if (!img.extracted || img.distro === 'windows') {
+        row.style.display = 'none';
+        return;
+    }
+
+    try {
+        const res = await authFetch(`${API_BASE}/images/boot-candidates?filename=${encodeURIComponent(img.filename)}`);
+        const data = await res.json();
+        if (!data.success || !data.data) throw new Error(data.error || 'failed');
+
+        const addOptions = (select, candidates, current) => {
+            for (const c of candidates || []) {
+                const selected = current === c.path ? 'selected' : '';
+                select.innerHTML += `<option value="${escapeHtml(c.path)}" ${selected}>${escapeHtml(c.path)} (${formatBytes(c.size)})</option>`;
+            }
+        };
+        addOptions(kernelSelect, data.data.kernels, data.data.kernel_override);
+        addOptions(initrdSelect, data.data.initrds, data.data.initrd_override);
+
+        const hasCandidates = (data.data.kernels || []).length > 0 || (data.data.initrds || []).length > 0;
+        row.style.display = hasCandidates ? '' : 'none';
+    } catch (e) {
+        row.style.display = 'none';
+    }
+}
 
 function updateImagePropsWarnings() {
     if (!_imagePropsState) return;
@@ -5511,6 +5548,12 @@ async function saveImageProperties(opts) {
         public: isPublic,
         auto_install_file: autoInstallFile,
     };
+
+    const bootFilesRow = document.getElementById('image-props-bootfiles-row');
+    if (bootFilesRow && bootFilesRow.style.display !== 'none') {
+        updates.kernel_override = document.getElementById('image-props-kernel-override').value;
+        updates.initrd_override = document.getElementById('image-props-initrd-override').value;
+    }
 
     try {
         // Update general image properties

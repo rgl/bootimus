@@ -42,6 +42,10 @@ func (s *SQLiteStore) AutoMigrate() error {
 		return fmt.Errorf("failed to cleanup soft-deleted files: %w", err)
 	}
 
+	if err := cleanupSoftDeletedClients(s.db); err != nil {
+		return fmt.Errorf("failed to cleanup soft-deleted clients: %w", err)
+	}
+
 	return nil
 }
 
@@ -84,7 +88,7 @@ func (s *SQLiteStore) UpdateClient(mac string, client *models.Client) error {
 }
 
 func (s *SQLiteStore) DeleteClient(mac string) error {
-	return s.db.Where("mac_address = ?", mac).Delete(&models.Client{}).Error
+	return deleteClientByMAC(s.db, mac)
 }
 
 func (s *SQLiteStore) ListImages() ([]*models.Image, error) {
@@ -158,26 +162,15 @@ func (s *SQLiteStore) SaveHardwareInventory(inv *models.HardwareInventory) error
 		if err := s.db.Where("mac_address = ?", inv.MACAddress).First(&client).Error; err == nil {
 			inv.ClientID = &client.ID
 		} else {
-			var deleted models.Client
-			if err := s.db.Unscoped().Where("mac_address = ? AND deleted_at IS NOT NULL", inv.MACAddress).First(&deleted).Error; err == nil {
-				deleted.DeletedAt = gorm.DeletedAt{}
-				deleted.Enabled = true
-				deleted.ShowPublicImages = true
-				deleted.Static = false
-				s.db.Unscoped().Save(&deleted)
-				inv.ClientID = &deleted.ID
-				log.Printf("Storage: Restored soft-deleted client for MAC %s", inv.MACAddress)
-			} else {
-				client = models.Client{
-					MACAddress:       inv.MACAddress,
-					Enabled:          true,
-					ShowPublicImages: true,
-					Static:           false,
-				}
-				if err := s.db.Create(&client).Error; err == nil {
-					inv.ClientID = &client.ID
-					log.Printf("Storage: Auto-created dynamic client for MAC %s", inv.MACAddress)
-				}
+			client = models.Client{
+				MACAddress:       inv.MACAddress,
+				Enabled:          true,
+				ShowPublicImages: true,
+				Static:           false,
+			}
+			if err := s.db.Create(&client).Error; err == nil {
+				inv.ClientID = &client.ID
+				log.Printf("Storage: Auto-created dynamic client for MAC %s", inv.MACAddress)
 			}
 		}
 	}

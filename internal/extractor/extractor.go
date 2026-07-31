@@ -881,7 +881,8 @@ func (e *Extractor) extractDirectory(dir *iso9660.File, destPath, isoPath string
 		return nil
 	}
 
-	for _, child := range children {
+	for i := 0; i < len(children); i++ {
+		child := children[i]
 		name := child.Name()
 		if name == "" || name == "." || name == ".." {
 			continue
@@ -906,7 +907,15 @@ func (e *Extractor) extractDirectory(dir *iso9660.File, destPath, isoPath string
 				log.Printf("Warning: error extracting directory %s: %v (continuing)", childISOPath, err)
 			}
 		} else {
-			if err := e.extractFile(child, childDestPath, childISOPath); err != nil {
+			extents := []*iso9660.File{child}
+			for i+1 < len(children) && !children[i+1].IsDir() && children[i+1].Name() == name {
+				i++
+				extents = append(extents, children[i])
+			}
+			if len(extents) > 1 {
+				log.Printf("Extracting multi-extent file %s (%d extents)", childISOPath, len(extents))
+			}
+			if err := e.extractFile(extents, childDestPath, childISOPath); err != nil {
 				log.Printf("Warning: failed to extract file %s: %v (skipping)", childISOPath, err)
 				continue
 			}
@@ -916,21 +925,21 @@ func (e *Extractor) extractDirectory(dir *iso9660.File, destPath, isoPath string
 	return nil
 }
 
-func (e *Extractor) extractFile(file *iso9660.File, destPath, isoPath string) error {
-	reader := file.Reader()
-
+func (e *Extractor) extractFile(extents []*iso9660.File, destPath, isoPath string) error {
 	outFile, err := os.Create(destPath)
 	if err != nil {
 		return fmt.Errorf("failed to create file: %w", err)
 	}
 	defer outFile.Close()
 
-	n, err := io.Copy(outFile, reader)
-	if err != nil {
-		os.Remove(destPath)
-		return fmt.Errorf("failed to copy file contents: %w", err)
+	for _, extent := range extents {
+		n, err := io.Copy(outFile, extent.Reader())
+		if err != nil {
+			os.Remove(destPath)
+			return fmt.Errorf("failed to copy file contents: %w", err)
+		}
+		e.progress.AddBytes(n)
 	}
-	e.progress.AddBytes(n)
 
 	return nil
 }

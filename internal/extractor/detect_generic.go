@@ -55,6 +55,14 @@ func (e *Extractor) detectGenericUnified(reader FileSystemReader) (*BootFiles, e
 	}, nil
 }
 
+func IsKernelFileName(name string) bool {
+	return isKernelFile(strings.ToLower(name))
+}
+
+func IsInitrdFileName(name string) bool {
+	return isInitrdFile(strings.ToLower(name))
+}
+
 func isKernelFile(name string) bool {
 	kernelPatterns := []string{
 		"vmlinuz",
