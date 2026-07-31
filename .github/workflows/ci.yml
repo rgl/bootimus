@@ -1,16 +1,15 @@
 name: CI
 
-# Runs on every branch push and on pull requests into main (which test the
-# merged result). Tag pushes are handled by release.yml, which stamps the
-# version and pushes the container image.
+# Runs once per change: pull requests test the result of merging into the
+# target branch; pushes to main verify the merge itself (and build the
+# container image). Branches without an open PR don't run CI. Tag pushes are
+# handled by release.yml, which stamps the version and pushes the image.
 
 on:
   push:
     branches:
-      - "**"
-  pull_request:
-    branches:
       - main
+  pull_request:
 
 permissions:
   contents: read
