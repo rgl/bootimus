@@ -34,7 +34,7 @@ func NewSQLiteStore(dataDir string) (*SQLiteStore, error) {
 }
 
 func (s *SQLiteStore) AutoMigrate() error {
-	if err := s.db.AutoMigrate(&models.User{}, &models.ClientGroup{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}, &models.MenuTheme{}, &models.BootTool{}, &models.HardwareInventory{}, &models.DistroProfile{}, &models.WebhookConfig{}, &models.ScheduledTask{}); err != nil {
+	if err := s.db.AutoMigrate(&models.User{}, &models.ClientGroup{}, &models.NodeImage{}, &models.Cluster{}, &models.Client{}, &models.ImageGroup{}, &models.Image{}, &models.BootLog{}, &models.CustomFile{}, &models.DriverPack{}, &models.MenuTheme{}, &models.BootTool{}, &models.HardwareInventory{}, &models.DistroProfile{}, &models.WebhookConfig{}, &models.ScheduledTask{}); err != nil {
 		return fmt.Errorf("failed to run migrations: %w", err)
 	}
 
@@ -83,7 +83,7 @@ func (s *SQLiteStore) CreateClient(client *models.Client) error {
 func (s *SQLiteStore) UpdateClient(mac string, client *models.Client) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Select("Name", "Description", "Enabled", "ShowPublicImages", "BootloaderSet", "Static", "ClientGroupID",
-			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "UpdatedAt").
+			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
 		Updates(client).Error
 }
 
@@ -891,7 +891,7 @@ func (s *SQLiteStore) CreateClientGroup(group *models.ClientGroup) error {
 func (s *SQLiteStore) UpdateClientGroup(id uint, group *models.ClientGroup) error {
 	return s.db.Model(&models.ClientGroup{}).Where("id = ?", id).
 		Select("Name", "Description", "Enabled", "AllowedImages", "BootloaderSet", "WOLBroadcastAddr", "StaggerDelayMillis",
-			"IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "UpdatedAt").
+			"IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
 		Updates(group).Error
 }
 

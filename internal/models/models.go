@@ -88,6 +88,66 @@ type Client struct {
 	IPMIInsecure bool   `gorm:"default:false" json:"ipmi_insecure,omitempty"`
 
 	AutoInstallFile string `json:"auto_install_file,omitempty"`
+
+	EnrollmentState string     `gorm:"default:'';index" json:"enrollment_state,omitempty"`
+	ClusterID       *uint      `gorm:"index" json:"cluster_id,omitempty"`
+	Cluster         *Cluster   `gorm:"foreignKey:ClusterID" json:"cluster,omitempty"`
+	ClusterRole     string     `json:"cluster_role,omitempty"`
+	InstallDisk     string     `json:"install_disk,omitempty"`
+	ConfigPatch     string     `gorm:"type:text" json:"config_patch,omitempty"`
+	EnrollmentToken string     `json:"-"`
+	TokenExpiresAt  *time.Time `json:"token_expires_at,omitempty"`
+	ApprovedAt      *time.Time `json:"approved_at,omitempty"`
+}
+
+const (
+	EnrollmentStateUnmanaged  = ""
+	EnrollmentStatePending    = "pending"
+	EnrollmentStateApproved   = "approved"
+	EnrollmentStateInstalling = "installing"
+	EnrollmentStateInstalled  = "installed"
+	EnrollmentStateRejected   = "rejected"
+)
+
+const (
+	ClusterRoleControlPlane = "controlplane"
+	ClusterRoleWorker       = "worker"
+)
+
+const (
+	ProviderTalos   = "talos"
+	ProviderFlatcar = "flatcar"
+)
+
+type NodeImage struct {
+	ID         uint           `gorm:"primarykey" json:"id"`
+	CreatedAt  time.Time      `json:"created_at"`
+	UpdatedAt  time.Time      `json:"updated_at"`
+	DeletedAt  gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	Name       string         `gorm:"uniqueIndex;not null" json:"name"`
+	Provider   string         `gorm:"not null" json:"provider"`
+	Version    string         `json:"version"`
+	ImageRef   string         `json:"image_ref"`
+	Downloaded bool           `gorm:"default:false" json:"downloaded"`
+}
+
+type Cluster struct {
+	ID          uint           `gorm:"primarykey" json:"id"`
+	CreatedAt   time.Time      `json:"created_at"`
+	UpdatedAt   time.Time      `json:"updated_at"`
+	DeletedAt   gorm.DeletedAt `gorm:"index" json:"deleted_at,omitempty"`
+	Name        string         `gorm:"uniqueIndex;not null" json:"name"`
+	Description string         `json:"description"`
+
+	NodeImageID *uint      `gorm:"index" json:"node_image_id,omitempty"`
+	NodeImage   *NodeImage `gorm:"foreignKey:NodeImageID" json:"node_image,omitempty"`
+
+	KernelParams       string `json:"kernel_params,omitempty"`
+	DefaultInstallDisk string `json:"default_install_disk"`
+
+	ControlPlaneConfig string `gorm:"type:text" json:"-"`
+	WorkerConfig       string `gorm:"type:text" json:"-"`
+	ConfigSource       string `json:"config_source,omitempty"`
 }
 
 type ScheduledTask struct {
@@ -116,6 +176,7 @@ type WebhookConfig struct {
 	OnBootStarted      bool      `gorm:"default:true" json:"on_boot_started"`
 	OnClientDiscovered bool      `gorm:"default:true" json:"on_client_discovered"`
 	OnInventoryUpdated bool      `gorm:"default:false" json:"on_inventory_updated"`
+	OnEnrollment       bool      `gorm:"default:true" json:"on_enrollment"`
 }
 
 type ClientGroup struct {

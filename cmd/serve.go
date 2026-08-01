@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"bootimus/internal/auth"
+	"bootimus/internal/netbind"
 	"bootimus/internal/profiles"
 	"bootimus/internal/server"
 	"bootimus/internal/storage"
@@ -71,9 +72,19 @@ func runServe(cmd *cobra.Command, args []string) {
 	log.Printf("  - Bootloaders: %s", bootloadersDir)
 
 	serverAddr := viper.GetString("server_addr")
+	bindInterface := viper.GetString("bind_interface")
 	if serverAddr == "" {
-		serverAddr = server.GetOutboundIP()
-		log.Printf("Auto-detected server IP: %s", serverAddr)
+		if bindInterface != "" {
+			ip, err := netbind.InterfaceIPv4(bindInterface)
+			if err != nil {
+				log.Fatalf("Failed to determine server IP from interface %s: %v", bindInterface, err)
+			}
+			serverAddr = ip.String()
+			log.Printf("Using server IP %s from interface %s", serverAddr, bindInterface)
+		} else {
+			serverAddr = server.GetOutboundIP()
+			log.Printf("Auto-detected server IP: %s", serverAddr)
+		}
 	}
 
 	var store storage.Storage
@@ -189,6 +200,7 @@ func runServe(cmd *cobra.Command, args []string) {
 		DataDir:          dataDir,
 		ISODir:           isoDir,
 		ServerAddr:       serverAddr,
+		BindInterface:    bindInterface,
 		Storage:          store,
 		Auth:             authMgr,
 		NBDEnabled:       viper.GetBool("nbd_enabled"),

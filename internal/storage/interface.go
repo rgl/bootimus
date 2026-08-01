@@ -2,6 +2,7 @@ package storage
 
 import (
 	"io"
+	"time"
 
 	"bootimus/internal/models"
 )
@@ -110,6 +111,23 @@ type Storage interface {
 	SaveHardwareInventory(inventory *models.HardwareInventory) error
 	GetLatestHardwareInventory(mac string) (*models.HardwareInventory, error)
 	GetHardwareInventoryHistory(mac string, limit int) ([]models.HardwareInventory, error)
+
+	ListNodeImages() ([]*models.NodeImage, error)
+	GetNodeImage(id uint) (*models.NodeImage, error)
+	CreateNodeImage(image *models.NodeImage) error
+	SetNodeImageDownloaded(id uint, downloaded bool) error
+	DeleteNodeImage(id uint) error
+
+	ListClusters() ([]*models.Cluster, error)
+	GetCluster(id uint) (*models.Cluster, error)
+	CreateCluster(cluster *models.Cluster) error
+	UpdateCluster(id uint, cluster *models.Cluster) error
+	SetClusterConfigs(id uint, controlPlane, worker, source string) error
+	DeleteCluster(id uint) error
+	ListClusterNodes(clusterID uint) ([]*models.Client, error)
+	AssignNodeToCluster(mac string, clusterID uint, role, installDisk, configPatch, token string, expires time.Time) error
+	SetClientEnrollmentState(mac, state string) error
+	ResetClientEnrollment(mac string) error
 
 	GetStats() (map[string]int64, error)
 }

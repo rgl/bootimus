@@ -105,6 +105,7 @@
                 <div class="nav-group">
                     <span class="nav-group-label" data-i18n="nav.group.access">Access</span>
                     <button class="nav-item" data-tab="clients" data-i18n="nav.clients"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="3" width="20" height="14" rx="2"/><line x1="2" y1="10" x2="22" y2="10"/></svg> Clients</button>
+                    <button class="nav-item" data-tab="clusters" data-i18n="nav.kubernetes"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><circle cx="12" cy="12" r="3"/><line x1="12" y1="9" x2="12" y2="5.5"/><line x1="12" y1="15" x2="12" y2="18.5"/><line x1="9.4" y1="10.5" x2="6.2" y2="8.7"/><line x1="14.6" y1="13.5" x2="17.8" y2="15.3"/><line x1="9.4" y1="13.5" x2="6.2" y2="15.3"/><line x1="14.6" y1="10.5" x2="17.8" y2="8.7"/></svg> Kubernetes</button>
                     <button class="nav-item" data-tab="users" data-i18n="nav.users"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg> Users</button>
                 </div>
                 <div class="nav-group">
@@ -284,6 +285,76 @@
                         <div class="spinner"></div>
                         Loading client groups...
                     </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="clusters-tab" class="tab-content">
+            <div class="card">
+                <h2>Node Images</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Operating system images that bootimus hosts and boots nodes with. Add an image for a provider, then download it so the kernel and initrd are cached locally. Clusters pick a node image to determine their OS.
+                </p>
+                <div class="toolbar">
+                    <button class="btn" type="button" onclick="showAddNodeImageModal()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Node Image
+                    </button>
+                    <button class="btn" type="button" onclick="loadNodeImages()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        Refresh
+                    </button>
+                </div>
+                <div id="node-images-table" class="loading">
+                    <div class="spinner"></div>
+                    Loading node images...
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2>Clusters</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Kubernetes clusters that bootimus boots nodes into. Each cluster picks a node image for its OS; use Configure to edit or upload its join configs.
+                </p>
+                <div class="toolbar">
+                    <button class="btn" type="button" onclick="showAddClusterModal()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Cluster
+                    </button>
+                    <button class="btn" type="button" onclick="loadClusters()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        Refresh
+                    </button>
+                </div>
+                <div id="clusters-table" class="loading">
+                    <div class="spinner"></div>
+                    Loading clusters...
+                </div>
+            </div>
+
+            <div class="card" style="margin-top: 20px;">
+                <h2>Cluster Nodes</h2>
+                <p style="color: var(--text-secondary); margin: 0 12px 8px; font-size: 13px;">
+                    Nodes assigned to a cluster. Add a node by its MAC address. Reinstall wipes the node and reprovisions it on next PXE boot; Remove from cluster detaches the node.
+                </p>
+                <div class="toolbar">
+                    <label style="display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-secondary);">
+                        Cluster:
+                        <select id="cluster-nodes-select" style="height: 34px; padding: 0 8px; border: 1px solid var(--border); border-radius: var(--radius-sm); background: var(--bg-input); color: var(--text-primary); font-size: 13px;" onchange="loadClusterNodes()">
+                            <option value="">(select a cluster)</option>
+                        </select>
+                    </label>
+                    <button class="btn" type="button" onclick="showAddNodeModal()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                        Add Node
+                    </button>
+                    <button class="btn" type="button" onclick="loadClusterNodes()">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>
+                        Refresh
+                    </button>
+                </div>
+                <div id="cluster-nodes-table">
+                    <p style="color: var(--text-secondary); padding: 20px;">Select a cluster to view its nodes.</p>
                 </div>
             </div>
         </div>
@@ -1963,6 +2034,154 @@
                     <button type="button" class="btn" onclick="closeModal('edit-client-group-modal')">Cancel</button>
                     <button type="submit" class="btn btn-primary">Save Group</button>
                 </div>
+            </form>
+        </div>
+    </div>
+
+    <div id="node-image-modal" class="modal">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2>Add Node Image</h2>
+            </div>
+            <form id="node-image-form" onsubmit="saveNodeImage(event)">
+                <div class="form-group">
+                    <label>Provider</label>
+                    <select id="node-image-provider" onchange="onNodeImageProviderChange()"></select>
+                </div>
+                <div id="node-image-provider-fields">
+                    <div class="form-group">
+                        <label id="node-image-version-label">Version</label>
+                        <input type="text" id="node-image-version">
+                    </div>
+                    <div class="form-group">
+                        <label id="node-image-ref-label">Image Reference</label>
+                        <input type="text" id="node-image-ref">
+                        <small id="node-image-ref-help" style="color: var(--text-secondary);"></small>
+                    </div>
+                    <div class="form-group">
+                        <label>Name</label>
+                        <input type="text" id="node-image-name" placeholder="Optional — auto-named if blank">
+                    </div>
+                </div>
+                <button type="submit" class="btn btn-primary">Add Node Image</button>
+                <button type="button" class="btn" onclick="closeModal('node-image-modal')">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="cluster-modal" class="modal">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2 id="cluster-modal-title">Add Cluster</h2>
+            </div>
+            <form id="cluster-form" onsubmit="saveCluster(event)">
+                <input type="hidden" id="cluster-id">
+                <div class="form-group">
+                    <label>Name *</label>
+                    <input type="text" id="cluster-name" placeholder="e.g. prod-cluster" required>
+                </div>
+                <div class="form-group">
+                    <label>Description</label>
+                    <textarea id="cluster-description" rows="2" placeholder="Optional description"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Node Image</label>
+                    <select id="cluster-node-image">
+                        <option value="">(none)</option>
+                    </select>
+                    <small style="color: var(--text-secondary);">The OS image nodes in this cluster boot. Manage images in the Node Images section.</small>
+                </div>
+                <div class="form-group">
+                    <label>Default Install Disk</label>
+                    <input type="text" id="cluster-default-install-disk" placeholder="/dev/sda">
+                </div>
+                <div class="form-group">
+                    <label>Extra Kernel Params</label>
+                    <input type="text" id="cluster-kernel-params" placeholder="Optional kernel parameters">
+                </div>
+                <button type="submit" class="btn btn-primary" id="cluster-save-btn">Create Cluster</button>
+                <button type="button" class="btn" onclick="closeModal('cluster-modal')">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="cluster-configs-modal" class="modal">
+        <div class="modal-content" style="max-width: 720px;">
+            <div class="modal-header">
+                <h2>Configure <span id="cluster-configs-name"></span></h2>
+            </div>
+            <p style="color: var(--text-secondary); font-size: 13px; margin: 0 0 16px;">
+                The machine join configs nodes boot with. Edit them in the browser or upload files generated outside bootimus. Configs must match the cluster's node image provider. An empty field leaves that config unchanged.
+            </p>
+            <input type="hidden" id="cluster-configs-provider">
+            <div id="cluster-configs-no-image" class="guide-warning" style="display:none;">
+                <span class="gw-text">This cluster has no node image assigned yet. Assign a node image first to load templates.</span>
+            </div>
+            <div class="subtabs" style="margin: 0 0 16px;">
+                <button type="button" class="subtab active" id="configs-mode-edit-btn" onclick="setClusterConfigMode('edit')">Edit in UI</button>
+                <button type="button" class="subtab" id="configs-mode-upload-btn" onclick="setClusterConfigMode('upload')">Upload files</button>
+            </div>
+            <form id="cluster-configs-form" onsubmit="saveClusterConfigs(event)">
+                <input type="hidden" id="cluster-configs-id">
+                <div class="form-group">
+                    <label>Control Plane Config <span id="cluster-configs-cp-status"></span></label>
+                    <div class="configs-edit-controls" style="margin-bottom: 6px;">
+                        <button type="button" class="btn btn-sm configs-template-btn" onclick="loadConfigTemplate('controlplane', 'cluster-config-cp')">Load template</button>
+                    </div>
+                    <input type="file" class="configs-upload-controls" accept=".yaml,.yml,.json" onchange="readClusterConfigFile(this, 'cluster-config-cp')" style="margin-bottom: 6px; display: none;">
+                    <textarea id="cluster-config-cp" rows="6" style="font-family: monospace; width: 100%; padding: 8px; border: 1px solid var(--text-muted); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);" placeholder="Control plane machine config"></textarea>
+                </div>
+                <div class="form-group">
+                    <label>Worker Config <span id="cluster-configs-worker-status"></span></label>
+                    <div class="configs-edit-controls" style="margin-bottom: 6px;">
+                        <button type="button" class="btn btn-sm configs-template-btn" onclick="loadConfigTemplate('worker', 'cluster-config-worker')">Load template</button>
+                    </div>
+                    <input type="file" class="configs-upload-controls" accept=".yaml,.yml,.json" onchange="readClusterConfigFile(this, 'cluster-config-worker')" style="margin-bottom: 6px; display: none;">
+                    <textarea id="cluster-config-worker" rows="6" style="font-family: monospace; width: 100%; padding: 8px; border: 1px solid var(--text-muted); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);" placeholder="Worker machine config"></textarea>
+                </div>
+                <button type="submit" class="btn btn-primary">Save Configs</button>
+                <button type="button" class="btn" onclick="closeModal('cluster-configs-modal')">Cancel</button>
+            </form>
+        </div>
+    </div>
+
+    <div id="add-node-modal" class="modal">
+        <div class="modal-content" style="max-width: 560px;">
+            <div class="modal-header">
+                <h2>Add Node to <span id="add-node-cluster-name"></span></h2>
+            </div>
+            <form id="add-node-form" onsubmit="assignNode(event)">
+                <div class="form-group">
+                    <label>MAC Address *</label>
+                    <input type="text" id="add-node-mac" placeholder="00:11:22:33:44:55" required>
+                </div>
+                <div class="form-group">
+                    <label>Role</label>
+                    <div style="display: flex; gap: 16px; padding: 4px 0;">
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 400;">
+                            <input type="radio" name="add-node-role" value="controlplane" checked style="margin: 0;"> Control Plane
+                        </label>
+                        <label style="display: flex; align-items: center; gap: 6px; cursor: pointer; font-weight: 400;">
+                            <input type="radio" name="add-node-role" value="worker" style="margin: 0;"> Worker
+                        </label>
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label>Install Disk</label>
+                    <input type="text" id="add-node-install-disk" placeholder="/dev/sda">
+                    <small style="color: var(--text-secondary);">Leave empty to use the cluster's default install disk.</small>
+                </div>
+                <div class="form-group">
+                    <label>Config Patch (optional)</label>
+                    <textarea id="add-node-config-patch" rows="5" style="font-family: monospace; width: 100%; padding: 8px; border: 1px solid var(--text-muted); border-radius: 4px; background: var(--bg-secondary); color: var(--text-primary);" placeholder="machine:&#10;  nodeLabels:&#10;    rack: r7"></textarea>
+                    <small style="color: var(--text-secondary);">Provider config patch applied on top of the role config for this node.</small>
+                </div>
+                <div class="form-group checkbox-group">
+                    <input type="checkbox" id="add-node-reboot">
+                    <label for="add-node-reboot">Wake-on-LAN after assigning</label>
+                </div>
+                <button type="submit" class="btn btn-primary">Add Node</button>
+                <button type="button" class="btn" onclick="closeModal('add-node-modal')">Cancel</button>
             </form>
         </div>
     </div>

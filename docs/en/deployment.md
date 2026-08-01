@@ -451,6 +451,7 @@ http_port: 8080
 admin_port: 8081
 data_dir: ./data          # Base data directory
 server_addr: ""           # Auto-detected if not specified
+bind_interface: ""        # Tie all listeners to one NIC, e.g. eth0 (Linux only; all interfaces if not specified)
 
 # Database configuration (optional)
 # If no db.host is specified, SQLite is used automatically

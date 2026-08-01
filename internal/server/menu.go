@@ -13,28 +13,42 @@ import (
 )
 
 type MenuBuilder struct {
-	images          []models.Image
-	groups          []*models.ImageGroup
-	theme           *models.MenuTheme
-	macAddress      string
-	serverAddr      string
-	httpPort        int
-	nfsPort         int
-	groupStack      []uint
-	enabledTools    []tools.EnabledTool
-	nextBootImageID uint
-	profileManager  *profiles.Manager
+	images            []models.Image
+	groups            []*models.ImageGroup
+	theme             *models.MenuTheme
+	macAddress        string
+	serverAddr        string
+	httpPort          int
+	nfsPort           int
+	groupStack        []uint
+	enabledTools      []tools.EnabledTool
+	nextBootImageID   uint
+	profileManager    *profiles.Manager
+	autoInstallTypes  map[uint]string
+	forceLocalDefault bool
 }
 
 func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress string, nextBootImageID ...uint) string {
-	groups, err := s.config.Storage.ListImageGroups()
-	if err != nil {
-		return s.generateIPXEMenu(images, macAddress)
-	}
+	var groups []*models.ImageGroup
+	var theme *models.MenuTheme
+	var client *models.Client
 
-	theme, err := s.config.Storage.GetMenuTheme()
-	if err != nil {
-		log.Printf("Warning: Failed to load menu theme: %v", err)
+	if s.config.Storage != nil {
+		var err error
+		groups, err = s.config.Storage.ListImageGroups()
+		if err != nil {
+			log.Printf("Warning: Failed to load image groups: %v", err)
+			groups = nil
+		}
+
+		theme, err = s.config.Storage.GetMenuTheme()
+		if err != nil {
+			log.Printf("Warning: Failed to load menu theme: %v", err)
+		}
+
+		if c, err := s.config.Storage.GetClient(macAddress); err == nil {
+			client = c
+		}
 	}
 
 	serverURL := fmt.Sprintf("http://%s:%d", s.config.ServerAddr, s.config.HTTPPort)
@@ -45,17 +59,29 @@ func (s *Server) generateIPXEMenuWithGroups(images []models.Image, macAddress st
 		nbID = nextBootImageID[0]
 	}
 
+	autoInstallTypes := make(map[uint]string)
+	for i := range images {
+		if images[i].BootMethod != "kernel" {
+			continue
+		}
+		if t := s.resolveAutoInstallType(&images[i], client); t != "" {
+			autoInstallTypes[images[i].ID] = t
+		}
+	}
+
 	mb := &MenuBuilder{
-		images:          images,
-		groups:          groups,
-		theme:           theme,
-		macAddress:      macAddress,
-		serverAddr:      s.config.ServerAddr,
-		httpPort:        s.config.HTTPPort,
-		nfsPort:         s.config.NFSPort,
-		enabledTools:    enabledTools,
-		nextBootImageID: nbID,
-		profileManager:  s.config.ProfileManager,
+		images:            images,
+		groups:            groups,
+		theme:             theme,
+		macAddress:        macAddress,
+		serverAddr:        s.config.ServerAddr,
+		httpPort:          s.config.HTTPPort,
+		nfsPort:           s.config.NFSPort,
+		enabledTools:      enabledTools,
+		nextBootImageID:   nbID,
+		profileManager:    s.config.ProfileManager,
+		autoInstallTypes:  autoInstallTypes,
+		forceLocalDefault: client != nil && client.EnrollmentState == models.EnrollmentStateInstalled,
 	}
 
 	return mb.Build()
@@ -86,6 +112,9 @@ func (mb *MenuBuilder) menuTimeoutMs() int {
 func (mb *MenuBuilder) resolveDefaultItem(visibleGroups []*models.ImageGroup, ungroupedImages []models.Image) string {
 	if mb.nextBootImageID > 0 {
 		return fmt.Sprintf("iso%d", mb.nextBootImageID)
+	}
+	if mb.forceLocalDefault {
+		return "local"
 	}
 	if mb.theme != nil {
 		switch mb.theme.DefaultMenuItem {
@@ -270,7 +299,7 @@ func (mb *MenuBuilder) buildImageBootSections() string {
 
 		case "kernel":
 			sb.WriteString("echo Loading kernel and initrd...\n")
-			if img.AutoInstallEnabled {
+			if mb.autoInstallTypes[img.ID] != "" {
 				sb.WriteString("echo Auto-install enabled for this image\n")
 			}
 
@@ -295,12 +324,19 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 
 	baseURL := fmt.Sprintf("http://%s:%d", mb.serverAddr, mb.httpPort)
 
-	autoInstallParam := ""
-	if img.AutoInstallEnabled {
-		autoInstallParam = " autoinstall"
-	}
+	autoInstallParam := mb.buildAutoInstallParam(img, baseURL, encodedFilename)
 
 	bootParams := mb.resolveBootParams(img, baseURL, encodedFilename, cacheDir)
+	if strings.Contains(autoInstallParam, "ds=nocloud-net") {
+		fields := strings.Fields(bootParams)
+		kept := fields[:0]
+		for _, f := range fields {
+			if f != "ds=nocloud" {
+				kept = append(kept, f)
+			}
+		}
+		bootParams = strings.Join(kept, " ")
+	}
 	if bootParams != "" {
 		bootParams = " " + bootParams
 	}
@@ -342,6 +378,28 @@ func (mb *MenuBuilder) buildKernelBootSection(img *models.Image, encodedFilename
 	return sb.String()
 }
 
+func (mb *MenuBuilder) buildAutoInstallParam(img *models.Image, baseURL, encodedFilename string) string {
+	scriptType := mb.autoInstallTypes[img.ID]
+	if scriptType == "" {
+		return ""
+	}
+
+	installURL := fmt.Sprintf("%s/autoinstall/%s?mac=%s", baseURL, encodedFilename, mb.macAddress)
+
+	switch scriptType {
+	case "preseed":
+		return fmt.Sprintf(" auto=true priority=critical url=%s", installURL)
+	case "kickstart":
+		return fmt.Sprintf(" inst.ks=%s", installURL)
+	case "autoinstall":
+		return fmt.Sprintf(" autoinstall ds=nocloud-net;s=%s/autoinstall/%s/mac/%s/", baseURL, encodedFilename, mb.macAddress)
+	case "autounattend":
+		return ""
+	default:
+		return fmt.Sprintf(" autoinstall=%s", installURL)
+	}
+}
+
 func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFilename, cacheDir string) string {
 	params := img.BootParams
 
@@ -357,6 +415,8 @@ func (mb *MenuBuilder) resolveBootParams(img *models.Image, baseURL, encodedFile
 	params = strings.ReplaceAll(params, "{{BASE_URL}}", baseURL)
 	params = strings.ReplaceAll(params, "{{CACHE_DIR}}", cacheDir)
 	params = strings.ReplaceAll(params, "{{FILENAME}}", encodedFilename)
+	params = strings.ReplaceAll(params, "{{IMAGE_FILENAME}}", encodedFilename)
+	params = strings.ReplaceAll(params, "{{SERVER_ADDR}}", mb.serverAddr)
 	params = strings.ReplaceAll(params, "{{MAC}}", mb.macAddress)
 	if img.SquashfsPath != "" {
 		params = strings.ReplaceAll(params, "{{SQUASHFS}}", fmt.Sprintf("%s/boot/%s/%s", baseURL, cacheDir, img.SquashfsPath))

@@ -378,6 +378,7 @@ function setupTabs() {
             if (item.dataset.tab === 'bootloaders') loadBootloaders();
             if (item.dataset.tab === 'profiles') loadProfiles();
             if (item.dataset.tab === 'autoinstall') loadAutoInstallFiles();
+            if (item.dataset.tab === 'clusters') loadClustersTab();
             if (item.dataset.tab === 'boot-menu') loadTheme();
             if (item.dataset.tab === 'settings') { loadUSBImages(); loadWebhookConfig(); }
             if (item.dataset.tab === 'api-reference') showAPIReference();
@@ -1143,7 +1144,7 @@ function clientRowHTML(client, includeGroupCell) {
                     <tr class="row-clickable" onclick="editClient('${client.mac_address}')">
                         <td class="col-check" onclick="event.stopPropagation()"><input type="checkbox" ${selectedClientMacs.has(client.mac_address) ? 'checked' : ''} onchange="toggleClientSelection('${client.mac_address}', this.checked)"></td>
                         <td><code>${client.mac_address}</code></td>
-                        <td>${client.name || '-'}</td>
+                        <td>${client.name || '-'}${client.enrollment_state ? ' ' + enrollmentStateBadge(client.enrollment_state) : ''}</td>
                         <td>
                             <span class="badge ${client.static ? 'badge-success' : 'badge-info'}">
                                 ${client.static ? 'Static' : 'Discovered'}
@@ -6579,4 +6580,607 @@ async function deleteAutoInstallFileFromEditor() {
     } catch (err) {
         showNotification('Delete failed: ' + err.message, 'error');
     }
+}
+
+let clusters = [];
+let clusterNodes = [];
+let nodeImages = [];
+let kubernetesProviders = [];
+let clusterConfigMode = 'edit';
+
+function enrollmentStateBadge(state) {
+    const classes = {
+        pending: 'badge-disabled',
+        approved: 'badge-info',
+        installing: 'badge-warning',
+        installed: 'badge-success',
+        rejected: 'badge-danger',
+    };
+    return `<span class="badge ${classes[state] || 'badge-info'}">${escapeHtml(state)}</span>`;
+}
+
+function loadClustersTab() {
+    loadKubernetesProviders();
+    loadNodeImages();
+    loadClusters();
+    loadClusterNodes();
+}
+
+function providerLabel(name) {
+    const p = kubernetesProviders.find(p => p.name === name);
+    if (p && p.label) return p.label;
+    return name ? name.charAt(0).toUpperCase() + name.slice(1) : '-';
+}
+
+async function loadKubernetesProviders() {
+    try {
+        const res = await authFetch(`${API_BASE}/kubernetes/providers`);
+        const data = await res.json();
+        if (data.success) kubernetesProviders = data.data || [];
+    } catch (err) {}
+}
+
+async function loadNodeImages() {
+    try {
+        const res = await authFetch(`${API_BASE}/node-images`);
+        const data = await res.json();
+        if (data.success) {
+            nodeImages = data.data || [];
+            renderNodeImagesTable();
+        } else {
+            showAlert(data.error || 'Failed to load node images', 'error');
+        }
+    } catch (err) {
+        document.getElementById('node-images-table').innerHTML = '<p class="alert alert-error">Failed to load node images</p>';
+    }
+}
+
+function renderNodeImagesTable() {
+    const container = document.getElementById('node-images-table');
+    if (!container) return;
+    if (nodeImages.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No node images yet. Add one to get started.</p>';
+        return;
+    }
+    const rows = nodeImages.map(img => `
+                    <tr>
+                        <td><strong>${escapeHtml(img.name || '-')}</strong></td>
+                        <td>${escapeHtml(providerLabel(img.provider))}</td>
+                        <td>${img.version ? escapeHtml(img.version) : '<span style="color: var(--text-secondary);">-</span>'}</td>
+                        <td>${img.image_ref ? '<code title="' + escapeHtml(img.image_ref) + '">' + escapeHtml(img.image_ref.length > 24 ? img.image_ref.slice(0, 24) + '…' : img.image_ref) + '</code>' : '<span style="color: var(--text-secondary);">-</span>'}</td>
+                        <td>${img.downloaded ?
+                            '<span class="badge badge-success">Downloaded ✓</span>' :
+                            '<button class="btn btn-sm" id="node-image-dl-btn-' + img.id + '" onclick="downloadNodeImage(' + img.id + ')">Download</button>'
+                        }</td>
+                        <td><button class="btn btn-danger btn-sm" onclick="deleteNodeImage(${img.id})">Delete</button></td>
+                    </tr>`).join('');
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Provider</th>
+                    <th>Version</th>
+                    <th>Image Ref</th>
+                    <th>Downloaded</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>
+    `;
+}
+
+async function showAddNodeImageModal() {
+    document.getElementById('node-image-form').reset();
+    if (kubernetesProviders.length === 0) await loadKubernetesProviders();
+    const select = document.getElementById('node-image-provider');
+    select.innerHTML = kubernetesProviders.map(p => `<option value="${escapeHtml(p.name)}">${escapeHtml(p.label)}</option>`).join('');
+    onNodeImageProviderChange();
+    showModal('node-image-modal');
+}
+
+function onNodeImageProviderChange() {
+    const name = document.getElementById('node-image-provider').value;
+    const p = kubernetesProviders.find(p => p.name === name);
+    const fields = document.getElementById('node-image-provider-fields');
+    if (!p) {
+        fields.style.display = 'none';
+        return;
+    }
+    fields.style.display = '';
+    document.getElementById('node-image-version-label').textContent = p.version_label || 'Version';
+    const versionInput = document.getElementById('node-image-version');
+    versionInput.placeholder = p.version_default || '';
+    document.getElementById('node-image-ref-label').textContent = p.ref_label || 'Image Reference';
+    const refInput = document.getElementById('node-image-ref');
+    refInput.placeholder = p.ref_default || '';
+    const refHelp = document.getElementById('node-image-ref-help');
+    refHelp.textContent = p.ref_help || '';
+    refHelp.style.display = p.ref_help ? '' : 'none';
+}
+
+async function saveNodeImage(e) {
+    e.preventDefault();
+    const body = JSON.stringify({
+        name: document.getElementById('node-image-name').value.trim(),
+        provider: document.getElementById('node-image-provider').value,
+        version: document.getElementById('node-image-version').value.trim(),
+        image_ref: document.getElementById('node-image-ref').value.trim(),
+    });
+    try {
+        const res = await authFetch(`${API_BASE}/node-images`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
+        const data = await res.json();
+        if (data.success) {
+            showAlert(data.message || 'Node image added', 'success');
+            closeModal('node-image-modal');
+            loadNodeImages();
+        } else {
+            showAlert(data.error || 'Failed to add node image', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to add node image', 'error');
+    }
+}
+
+async function downloadNodeImage(id) {
+    const btn = document.getElementById('node-image-dl-btn-' + id);
+    if (btn) {
+        btn.disabled = true;
+        btn.innerHTML = '<span class="spinner" style="display: inline-block; width: 12px; height: 12px; border-width: 2px; margin: 0 6px -2px 0;"></span>Downloading...';
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/node-images/download?id=${encodeURIComponent(id)}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showAlert(data.message || 'Node image downloaded', 'success');
+            loadNodeImages();
+        } else {
+            showAlert(data.error || 'Failed to download node image', 'error');
+            if (btn) { btn.disabled = false; btn.textContent = 'Download'; }
+        }
+    } catch (err) {
+        showAlert('Failed to download node image', 'error');
+        if (btn) { btn.disabled = false; btn.textContent = 'Download'; }
+    }
+}
+
+async function deleteNodeImage(id) {
+    const img = nodeImages.find(i => i.id === id);
+    const name = img ? img.name : id;
+    if (!confirm(`Delete node image "${name}"?`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/node-images/delete?id=${encodeURIComponent(id)}`, { method: 'POST' });
+        const data = await res.json();
+        if (data.success) {
+            showAlert(data.message || 'Node image deleted', 'success');
+            loadNodeImages();
+        } else {
+            showAlert(data.error || 'Failed to delete node image', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to delete node image', 'error');
+    }
+}
+
+async function loadClusters() {
+    try {
+        const res = await authFetch(`${API_BASE}/clusters`);
+        const data = await res.json();
+        if (data.success) {
+            clusters = data.data || [];
+            renderClustersTable();
+            populateClusterNodesSelect();
+        } else {
+            showAlert(data.error || 'Failed to load clusters', 'error');
+        }
+    } catch (err) {
+        document.getElementById('clusters-table').innerHTML = '<p class="alert alert-error">Failed to load clusters</p>';
+    }
+}
+
+function clusterNodeImageLabel(c) {
+    if (!c.node_image_name) return '<span style="color: var(--text-secondary);">-</span>';
+    const version = c.node_image_version ? ' ' + c.node_image_version : '';
+    return escapeHtml(c.node_image_name + version);
+}
+
+function clusterConfigBadges(c) {
+    const badge = (ok, label, title) => ok ?
+        `<span class="badge badge-success" title="${title} uploaded">${label} ✓</span>` :
+        `<span class="badge badge-disabled" title="${title} not uploaded">${label}</span>`;
+    return badge(c.has_control_plane_config, 'CP', 'Control plane config') + ' ' +
+        badge(c.has_worker_config, 'Worker', 'Worker config');
+}
+
+function renderClustersTable() {
+    const container = document.getElementById('clusters-table');
+    if (!container) return;
+    if (clusters.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No clusters yet. Add one to get started.</p>';
+        return;
+    }
+    const rows = clusters.map(c => `
+                    <tr>
+                        <td><strong>${escapeHtml(c.name)}</strong>${c.description ? '<br><span style="color: var(--text-secondary); font-size: 12px;">' + escapeHtml(c.description) + '</span>' : ''}</td>
+                        <td>${clusterNodeImageLabel(c)}</td>
+                        <td>${clusterConfigBadges(c)}</td>
+                        <td>${c.node_count || 0}</td>
+                        <td>
+                            <button class="btn btn-sm" onclick="showEditClusterModal(${c.id})">Edit</button>
+                            <button class="btn btn-sm" onclick="showClusterConfigsModal(${c.id})">Configure</button>
+                            <button class="btn btn-danger btn-sm" onclick="deleteCluster(${c.id})">Delete</button>
+                        </td>
+                    </tr>`).join('');
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Name</th>
+                    <th>Node Image</th>
+                    <th>Configs</th>
+                    <th>Nodes</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>
+    `;
+}
+
+function populateNodeImageSelect(selectId, selectedId) {
+    const select = document.getElementById(selectId);
+    if (!select) return;
+    let html = '<option value="">(none)</option>';
+    html += nodeImages.map(img => {
+        const label = img.name + (img.version ? ' (' + providerLabel(img.provider) + ' ' + img.version + ')' : ' (' + providerLabel(img.provider) + ')');
+        const selected = selectedId != null && img.id === selectedId ? ' selected' : '';
+        return `<option value="${img.id}"${selected}>${escapeHtml(label)}</option>`;
+    }).join('');
+    select.innerHTML = html;
+}
+
+function populateClusterNodesSelect() {
+    const select = document.getElementById('cluster-nodes-select');
+    if (!select) return;
+    const current = select.value;
+    select.innerHTML = '<option value="">(select a cluster)</option>' +
+        clusters.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+    if (current && clusters.some(c => String(c.id) === current)) {
+        select.value = current;
+    }
+}
+
+async function showAddClusterModal() {
+    document.getElementById('cluster-form').reset();
+    document.getElementById('cluster-id').value = '';
+    document.getElementById('cluster-modal-title').textContent = 'Add Cluster';
+    document.getElementById('cluster-save-btn').textContent = 'Create Cluster';
+    if (nodeImages.length === 0) await loadNodeImages();
+    populateNodeImageSelect('cluster-node-image', null);
+    showModal('cluster-modal');
+}
+
+async function showEditClusterModal(id) {
+    const cluster = clusters.find(c => c.id === id);
+    if (!cluster) return;
+    document.getElementById('cluster-form').reset();
+    document.getElementById('cluster-id').value = cluster.id;
+    document.getElementById('cluster-modal-title').textContent = 'Edit Cluster';
+    document.getElementById('cluster-save-btn').textContent = 'Update Cluster';
+    document.getElementById('cluster-name').value = cluster.name || '';
+    document.getElementById('cluster-description').value = cluster.description || '';
+    document.getElementById('cluster-kernel-params').value = cluster.kernel_params || '';
+    document.getElementById('cluster-default-install-disk').value = cluster.default_install_disk || '';
+    if (nodeImages.length === 0) await loadNodeImages();
+    populateNodeImageSelect('cluster-node-image', cluster.node_image_id);
+    showModal('cluster-modal');
+}
+
+async function saveCluster(e) {
+    e.preventDefault();
+    const id = document.getElementById('cluster-id').value;
+    const nodeImageRaw = document.getElementById('cluster-node-image').value;
+    const body = JSON.stringify({
+        name: document.getElementById('cluster-name').value.trim(),
+        description: document.getElementById('cluster-description').value.trim(),
+        node_image_id: nodeImageRaw === '' ? null : parseInt(nodeImageRaw, 10),
+        default_install_disk: document.getElementById('cluster-default-install-disk').value.trim(),
+        kernel_params: document.getElementById('cluster-kernel-params').value.trim(),
+    });
+    const url = id ? `${API_BASE}/clusters/update?id=${encodeURIComponent(id)}` : `${API_BASE}/clusters`;
+    try {
+        const res = await authFetch(url, {
+            method: id ? 'PUT' : 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body,
+        });
+        const data = await res.json();
+        if (data.success) {
+            showAlert(id ? 'Cluster updated' : 'Cluster created', 'success');
+            closeModal('cluster-modal');
+            loadClusters();
+        } else {
+            showAlert(data.error || 'Failed to save cluster', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to save cluster', 'error');
+    }
+}
+
+async function deleteCluster(id) {
+    const cluster = clusters.find(c => c.id === id);
+    const name = cluster ? cluster.name : id;
+    if (!confirm(`Delete cluster "${name}"? Its nodes will be detached and become unmanaged.`)) return;
+    try {
+        const res = await authFetch(`${API_BASE}/clusters/delete?id=${encodeURIComponent(id)}`, { method: 'DELETE' });
+        const data = await res.json();
+        if (data.success) {
+            showAlert(data.message || 'Cluster deleted', 'success');
+            await loadClusters();
+            loadClusterNodes();
+            loadClients();
+        } else {
+            showAlert(data.error || 'Failed to delete cluster', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to delete cluster', 'error');
+    }
+}
+
+async function showClusterConfigsModal(id) {
+    const cluster = clusters.find(c => c.id === id);
+    if (!cluster) return;
+    document.getElementById('cluster-configs-form').reset();
+    document.getElementById('cluster-configs-id').value = id;
+    document.getElementById('cluster-configs-name').textContent = cluster.name;
+    document.getElementById('cluster-configs-provider').value = cluster.node_image_provider || '';
+    const noImage = !cluster.node_image_provider;
+    document.getElementById('cluster-configs-no-image').style.display = noImage ? '' : 'none';
+    document.querySelectorAll('#cluster-configs-modal .configs-template-btn').forEach(b => { b.disabled = noImage; });
+    setClusterConfigMode('edit');
+    setClusterConfigStatus(cluster);
+    showModal('cluster-configs-modal');
+    try {
+        const res = await authFetch(`${API_BASE}/clusters/config?id=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (data.success && data.data) setClusterConfigStatus(data.data);
+    } catch (err) {}
+}
+
+function setClusterConfigMode(mode) {
+    clusterConfigMode = mode;
+    document.getElementById('configs-mode-edit-btn').classList.toggle('active', mode === 'edit');
+    document.getElementById('configs-mode-upload-btn').classList.toggle('active', mode === 'upload');
+    document.querySelectorAll('#cluster-configs-modal .configs-edit-controls').forEach(el => {
+        el.style.display = mode === 'edit' ? '' : 'none';
+    });
+    document.querySelectorAll('#cluster-configs-modal .configs-upload-controls').forEach(el => {
+        el.style.display = mode === 'upload' ? '' : 'none';
+    });
+}
+
+function setClusterConfigStatus(flags) {
+    const status = (elId, ok) => {
+        document.getElementById(elId).innerHTML = ok ?
+            '<span class="badge badge-success">Saved ✓</span>' :
+            '<span class="badge badge-disabled">Not set</span>';
+    };
+    status('cluster-configs-cp-status', flags.has_control_plane_config);
+    status('cluster-configs-worker-status', flags.has_worker_config);
+}
+
+function readClusterConfigFile(input, textareaId) {
+    const file = input.files && input.files[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = () => {
+        document.getElementById(textareaId).value = reader.result;
+    };
+    reader.readAsText(file);
+}
+
+async function loadConfigTemplate(role, textareaId) {
+    const provider = document.getElementById('cluster-configs-provider').value;
+    if (!provider) {
+        showAlert('Assign a node image to the cluster first', 'error');
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/clusters/config/template?provider=${encodeURIComponent(provider)}&role=${encodeURIComponent(role)}`);
+        const data = await res.json();
+        if (data.success && data.data) {
+            document.getElementById(textareaId).value = data.data.template || '';
+        } else {
+            showAlert(data.error || 'Failed to load template', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to load template', 'error');
+    }
+}
+
+async function saveClusterConfigs(e) {
+    e.preventDefault();
+    const id = document.getElementById('cluster-configs-id').value;
+    const body = {
+        control_plane_config: document.getElementById('cluster-config-cp').value,
+        worker_config: document.getElementById('cluster-config-worker').value,
+        source: clusterConfigMode,
+    };
+    if (!body.control_plane_config && !body.worker_config) {
+        showAlert('Provide at least one config document', 'error');
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/clusters/config?id=${encodeURIComponent(id)}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(body),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showAlert(data.message || 'Configs saved', 'success');
+            closeModal('cluster-configs-modal');
+            loadClusters();
+        } else {
+            showAlert(data.error || 'Failed to save configs', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to save configs', 'error');
+    }
+}
+
+async function loadClusterNodes() {
+    const select = document.getElementById('cluster-nodes-select');
+    const container = document.getElementById('cluster-nodes-table');
+    if (!select || !container) return;
+    const id = select.value;
+    if (!id) {
+        clusterNodes = [];
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">Select a cluster to view its nodes.</p>';
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/clusters/nodes?id=${encodeURIComponent(id)}`);
+        const data = await res.json();
+        if (data.success) {
+            clusterNodes = data.data || [];
+            renderClusterNodesTable();
+        } else {
+            showAlert(data.error || 'Failed to load cluster nodes', 'error');
+        }
+    } catch (err) {
+        container.innerHTML = '<p class="alert alert-error">Failed to load cluster nodes</p>';
+    }
+}
+
+function renderClusterNodesTable() {
+    const container = document.getElementById('cluster-nodes-table');
+    if (!container) return;
+    if (clusterNodes.length === 0) {
+        container.innerHTML = '<p style="color: var(--text-secondary); padding: 20px;">No nodes in this cluster yet. Use Add Node to assign one.</p>';
+        return;
+    }
+    const rows = clusterNodes.map(n => `
+                    <tr>
+                        <td>${n.name ? escapeHtml(n.name) + '<br>' : ''}<code>${n.mac_address}</code></td>
+                        <td>${n.cluster_role === 'controlplane' ? 'Control Plane' : n.cluster_role === 'worker' ? 'Worker' : '-'}</td>
+                        <td>${n.enrollment_state ? enrollmentStateBadge(n.enrollment_state) : '-'}</td>
+                        <td>${n.install_disk ? '<code>' + escapeHtml(n.install_disk) + '</code>' : '<span style="color: var(--text-secondary);">Default</span>'}</td>
+                        <td>${n.approved_at ? new Date(n.approved_at).toLocaleString() : '-'}</td>
+                        <td>
+                            <button class="btn btn-sm" onclick="reinstallNode('${n.mac_address}')">Reinstall</button>
+                            ${n.enrollment_state === 'installing' ? '<button class="btn btn-primary btn-sm" onclick="markNodeInstalled(\'' + n.mac_address + '\')">Mark Installed</button>' : ''}
+                            <button class="btn btn-danger btn-sm" onclick="unassignNode('${n.mac_address}')">Remove from cluster</button>
+                        </td>
+                    </tr>`).join('');
+    container.innerHTML = `
+        <div class="table-scroll">
+        <table>
+            <thead>
+                <tr>
+                    <th>Node</th>
+                    <th>Role</th>
+                    <th>State</th>
+                    <th>Install Disk</th>
+                    <th>Approved At</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+        </table>
+        </div>
+    `;
+}
+
+function showAddNodeModal() {
+    const clusterId = document.getElementById('cluster-nodes-select').value;
+    if (!clusterId) {
+        showAlert('Select a cluster first', 'error');
+        return;
+    }
+    const cluster = clusters.find(c => String(c.id) === clusterId);
+    document.getElementById('add-node-form').reset();
+    document.getElementById('add-node-cluster-name').textContent = cluster ? cluster.name : '';
+    document.getElementById('add-node-install-disk').placeholder =
+        cluster && cluster.default_install_disk ? cluster.default_install_disk : '/dev/sda';
+    showModal('add-node-modal');
+}
+
+async function assignNode(e) {
+    e.preventDefault();
+    const clusterId = parseInt(document.getElementById('cluster-nodes-select').value, 10);
+    if (!clusterId) {
+        showAlert('Select a cluster first', 'error');
+        return;
+    }
+    try {
+        const res = await authFetch(`${API_BASE}/clusters/nodes/assign`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                mac: document.getElementById('add-node-mac').value.trim(),
+                cluster_id: clusterId,
+                role: document.querySelector('input[name="add-node-role"]:checked').value,
+                install_disk: document.getElementById('add-node-install-disk').value.trim(),
+                config_patch: document.getElementById('add-node-config-patch').value,
+                reboot: document.getElementById('add-node-reboot').checked,
+            }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showAlert(data.message || 'Node added to cluster', 'success');
+            closeModal('add-node-modal');
+            await loadClusters();
+            loadClusterNodes();
+            loadClients();
+        } else {
+            showAlert(data.error || 'Failed to add node', 'error');
+        }
+    } catch (err) {
+        showAlert('Failed to add node', 'error');
+    }
+}
+
+async function clusterNodeAction(path, mac, fallbackMessage) {
+    try {
+        const res = await authFetch(`${API_BASE}/clusters/nodes/${path}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mac }),
+        });
+        const data = await res.json();
+        if (data.success) {
+            showAlert(data.message || fallbackMessage, 'success');
+            await loadClusters();
+            loadClusterNodes();
+            loadClients();
+        } else {
+            showAlert(data.error || 'Action failed', 'error');
+        }
+    } catch (err) {
+        showAlert('Action failed', 'error');
+    }
+}
+
+function reinstallNode(mac) {
+    if (!confirm(`Reinstall ${mac}? The node will be wiped and reprovisioned on next PXE boot.`)) return;
+    clusterNodeAction('reinstall', mac, 'Node will be reprovisioned on next PXE boot');
+}
+
+function unassignNode(mac) {
+    if (!confirm(`Remove ${mac} from its cluster? The node will become unmanaged.`)) return;
+    clusterNodeAction('unassign', mac, 'Node removed from cluster');
+}
+
+function markNodeInstalled(mac) {
+    clusterNodeAction('mark-installed', mac, 'Node marked installed');
 }

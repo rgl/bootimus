@@ -16,6 +16,10 @@ const (
 	EventBootStarted      = "boot.started"
 	EventClientDiscovered = "client.discovered"
 	EventInventoryUpdated = "client.inventory_updated"
+	EventNodeApproved     = "node.approved"
+	EventNodeRejected     = "node.rejected"
+	EventInstallStarted   = "node.install_started"
+	EventInstallCompleted = "node.install_completed"
 )
 
 type Event struct {
@@ -65,6 +69,8 @@ func eventEnabled(cfg *models.WebhookConfig, event string) bool {
 		return cfg.OnClientDiscovered
 	case EventInventoryUpdated:
 		return cfg.OnInventoryUpdated
+	case EventNodeApproved, EventNodeRejected, EventInstallStarted, EventInstallCompleted:
+		return cfg.OnEnrollment
 	}
 	return false
 }

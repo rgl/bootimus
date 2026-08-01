@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 
 	"bootimus/bootloaders"
@@ -29,6 +28,7 @@ import (
 	"bootimus/internal/metrics"
 	"bootimus/internal/models"
 	"bootimus/internal/nbd"
+	"bootimus/internal/netbind"
 	"bootimus/internal/nfs"
 	"bootimus/internal/profiles"
 	"bootimus/internal/proxydhcp"
@@ -81,6 +81,7 @@ type Config struct {
 	DataDir          string
 	ISODir           string
 	ServerAddr       string
+	BindInterface    string
 	Storage          storage.Storage
 	Auth             *auth.Manager
 	NBDEnabled       bool
@@ -481,6 +482,9 @@ func (s *Server) Start() error {
 	log.Printf("HTTP Port: %d", s.config.HTTPPort)
 	log.Printf("Admin Port: %d", s.config.AdminPort)
 	log.Printf("Server Address: %s", s.config.ServerAddr)
+	if s.config.BindInterface != "" {
+		log.Printf("Binding all listeners to interface: %s", s.config.BindInterface)
+	}
 
 	if mgr, err := autoinstall.New(s.config.DataDir); err != nil {
 		log.Printf("Warning: could not initialise autoinstall manager: %v", err)
@@ -562,7 +566,7 @@ func (s *Server) Start() error {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			nbdServer := nbd.NewServer(s.config.ISODir, s.config.NBDPort)
+			nbdServer := nbd.NewServer(s.config.ISODir, s.config.NBDPort, s.config.BindInterface)
 			if err := nbdServer.Start(); err != nil {
 				log.Printf("NBD server error: %v", err)
 			}
@@ -574,7 +578,7 @@ func (s *Server) Start() error {
 		s.wg.Add(1)
 		go func() {
 			defer s.wg.Done()
-			nfsServer := nfs.NewServer(s.config.ISODir, s.config.NFSPort)
+			nfsServer := nfs.NewServer(s.config.ISODir, s.config.NFSPort, s.config.BindInterface)
 			if err := nfsServer.Start(); err != nil {
 				log.Printf("NFS server error: %v", err)
 			}
@@ -588,6 +592,7 @@ func (s *Server) Start() error {
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
 			ServerIP:      net.ParseIP(s.config.ServerAddr),
+			Interface:     s.config.BindInterface,
 			BootfileBIOS:  s.config.ProxyDHCPBootfileBIOS,
 			BootfileUEFI:  s.config.ProxyDHCPBootfileUEFI,
 			BootfileARM64: s.config.ProxyDHCPBootfileARM,
@@ -895,7 +900,11 @@ goto dhcp
 	}
 
 	addr := fmt.Sprintf(":%d", s.config.TFTPPort)
-	if err := server.ListenAndServe(addr); err != nil {
+	conn, err := netbind.ListenUDP(s.config.BindInterface, "udp", addr)
+	if err != nil {
+		return fmt.Errorf("TFTP server failed: %w", err)
+	}
+	if err := server.Serve(conn); err != nil {
 		return fmt.Errorf("TFTP server failed: %w", err)
 	}
 
@@ -1064,6 +1073,10 @@ func (s *Server) startHTTPServer() error {
 
 	mux.HandleFunc("/autoinstall/", s.handleAutoInstallScript)
 
+	mux.HandleFunc("/machineconfig", s.handleMachineConfig)
+
+	mux.Handle("/node-images/", http.StripPrefix("/node-images/", http.FileServer(http.Dir(s.provisionAssetDir()))))
+
 	mux.HandleFunc("/files/", s.handleCustomFile)
 
 	mux.HandleFunc("/bootenv/", func(w http.ResponseWriter, r *http.Request) {
@@ -1088,7 +1101,11 @@ func (s *Server) startHTTPServer() error {
 		Handler: mux,
 	}
 
-	if err := s.httpServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	ln, err := netbind.Listen(s.config.BindInterface, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("HTTP server failed: %w", err)
+	}
+	if err := s.httpServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("HTTP server failed: %w", err)
 	}
 
@@ -1116,7 +1133,11 @@ func (s *Server) startAdminServer() error {
 		Handler: panicRecoveryMiddleware(mux),
 	}
 
-	if err := s.adminServer.ListenAndServe(); err != nil && err != http.ErrServerClosed {
+	ln, err := netbind.Listen(s.config.BindInterface, "tcp", addr)
+	if err != nil {
+		return fmt.Errorf("Admin server failed: %w", err)
+	}
+	if err := s.adminServer.Serve(ln); err != nil && err != http.ErrServerClosed {
 		return fmt.Errorf("Admin server failed: %w", err)
 	}
 
@@ -1131,6 +1152,7 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 		adminHandler.SchedulerReload = s.scheduler.Reload
 		adminHandler.SchedulerRunNow = s.scheduler.RunNow
 	}
+	adminHandler.WebhookNotifier = s.webhookNotifier
 
 	staticFS, err := fs.Sub(web.Static, "static")
 	if err != nil {
@@ -1216,6 +1238,21 @@ func (s *Server) setupAdminInterface(mux *http.ServeMux) {
 			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		}
 	}))
+
+	mux.HandleFunc("/api/clusters", adminWrap(adminHandler.Clusters))
+	mux.HandleFunc("/api/clusters/update", adminWrap(adminHandler.UpdateCluster))
+	mux.HandleFunc("/api/clusters/delete", adminWrap(adminHandler.DeleteCluster))
+	mux.HandleFunc("/api/clusters/config", adminWrap(adminHandler.ClusterConfig))
+	mux.HandleFunc("/api/clusters/config/template", adminWrap(adminHandler.ConfigTemplate))
+	mux.HandleFunc("/api/clusters/nodes", adminWrap(adminHandler.ClusterNodes))
+	mux.HandleFunc("/api/node-images", adminWrap(adminHandler.NodeImages))
+	mux.HandleFunc("/api/node-images/delete", adminWrap(adminHandler.DeleteNodeImage))
+	mux.HandleFunc("/api/node-images/download", adminWrap(adminHandler.DownloadNodeImage))
+	mux.HandleFunc("/api/kubernetes/providers", adminWrap(adminHandler.KubernetesProviders))
+	mux.HandleFunc("/api/clusters/nodes/assign", adminWrap(adminHandler.AssignNode))
+	mux.HandleFunc("/api/clusters/nodes/unassign", adminWrap(adminHandler.UnassignNode))
+	mux.HandleFunc("/api/clusters/nodes/reinstall", adminWrap(adminHandler.ReinstallNode))
+	mux.HandleFunc("/api/clusters/nodes/mark-installed", adminWrap(adminHandler.MarkNodeInstalled))
 
 	mux.HandleFunc("/api/clients/wake", adminWrap(adminHandler.WakeClient))
 	mux.HandleFunc("/api/clients/next-boot", adminWrap(adminHandler.SetNextBootImage))
@@ -1773,6 +1810,27 @@ func (s *Server) handleIPXEMenu(w http.ResponseWriter, r *http.Request) {
 	var nextBootImageID uint
 	if s.config.Storage != nil {
 		client, err := s.config.Storage.GetClient(macAddress)
+		if err == nil {
+			switch client.EnrollmentState {
+			case models.EnrollmentStateApproved:
+				if script, ok := s.provisionInstallScriptFor(client); ok {
+					s.logAndBroadcast("Client %s: approved cluster node - serving install boot", macAddress)
+					w.Header().Set("Content-Type", "text/plain")
+					w.Write([]byte(script))
+					return
+				}
+			case models.EnrollmentStateInstalling:
+				if stateErr := s.config.Storage.SetClientEnrollmentState(macAddress, models.EnrollmentStateInstalled); stateErr == nil {
+					s.logAndBroadcast("Client %s: install complete - node will default to local boot", macAddress)
+					s.webhookNotifier.Fire(webhook.Event{
+						Event:      webhook.EventInstallCompleted,
+						MAC:        macAddress,
+						ClientName: client.Name,
+						IP:         r.RemoteAddr,
+					})
+				}
+			}
+		}
 		if err == nil && client.NextBootImage != "" {
 			img, imgErr := s.config.Storage.GetImage(client.NextBootImage)
 			if imgErr == nil && img.Enabled {
@@ -1803,168 +1861,6 @@ func (s *Server) handleIPXEMenu(w http.ResponseWriter, r *http.Request) {
 	menu := s.generateIPXEMenuWithGroups(images, macAddress, nextBootImageID)
 	w.Header().Set("Content-Type", "text/plain")
 	w.Write([]byte(menu))
-}
-
-func (s *Server) generateIPXEMenu(images []models.Image, macAddress string) string {
-	tmpl := `#!ipxe
-
-:start
-menu Bootimus - Boot Menu
-item --gap -- Available Images:
-{{range $index, $img := .Images}}
-item iso{{$index}} {{$img.Name}} ({{$img.SizeStr}}){{if $img.Extracted}} [kernel]{{end}}
-{{end}}
-item --gap -- Options:
-item shell Drop to iPXE shell
-item reboot Reboot
-choose --default iso0 --timeout 30000 selected || goto start
-goto ${selected}
-
-{{range $index, $img := .Images}}
-:iso{{$index}}
-echo Booting {{$img.Name}}...
-{{if eq $img.BootMethod "kernel"}}
-echo Loading kernel and initrd...
-{{if $img.AutoInstallEnabled}}
-echo Auto-install enabled for this image
-{{end}}
-{{if eq $img.Distro "windows"}}
-echo Loading Windows boot files via wimboot...
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/wimboot
-initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/boot.wim boot.wim
-{{if $img.InstallWimPath}}initrd --name {{$img.InstallBasename}} http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/{{$img.InstallBasename}}
-{{end}}boot || goto failed
-{{else if eq $img.Distro "arch"}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}archiso_http_srv=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso/ ip=dhcp
-{{else if eq $img.Distro "nixos"}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}} ip=dhcp
-{{else if or (eq $img.Distro "fedora") (eq $img.Distro "centos")}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}root=live:http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}} rd.live.image inst.repo=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso/ inst.stage2=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/iso/ rd.neednet=1 ip=dhcp
-{{else if eq $img.Distro "debian"}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}} initrd=initrd ip=dhcp priority=critical
-{{else if eq $img.Distro "ubuntu"}}
-{{if $img.NetbootAvailable}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}} initrd=initrd ip=dhcp
-{{else}}
-{{if $img.SquashfsPath}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}} initrd=initrd ip=dhcp fetch=http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/{{$img.SquashfsPath}}
-{{else}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}} initrd=initrd ip=dhcp url=http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}}
-{{end}}
-{{end}}
-{{else if eq $img.Distro "freebsd"}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz vfs.root.mountfrom=cd9660:/dev/md0 kernelname=/boot/kernel/kernel
-{{else}}
-kernel http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/vmlinuz {{$img.AutoInstallParam}}{{$img.BootParams}}iso-url=http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}} ip=dhcp
-{{end}}
-{{if ne $img.Distro "windows"}}
-initrd http://{{$.ServerAddr}}:{{$.HTTPPort}}/boot/{{$img.CacheDir}}/initrd
-{{end}}
-boot || goto failed
-{{else}}
-sanboot --no-describe --drive 0x80 http://{{$.ServerAddr}}:{{$.HTTPPort}}/isos/{{$img.EncodedFilename}}?mac={{$.MAC}}
-{{end}}
-goto start
-{{end}}
-
-:failed
-echo Boot failed! Press any key to return to menu...
-prompt
-goto start
-
-:shell
-echo Type 'exit' to return to menu
-shell
-goto start
-
-:reboot
-reboot
-`
-
-	t, _ := template.New("menu").Parse(tmpl)
-
-	type ImageData struct {
-		Name               string
-		Filename           string
-		EncodedFilename    string
-		SizeStr            string
-		BootMethod         string
-		Extracted          bool
-		BootParams         string
-		CacheDir           string
-		Distro             string
-		AutoInstallEnabled bool
-		AutoInstallURL     string
-		AutoInstallParam   string
-		SquashfsPath       string
-		NetbootAvailable   bool
-		InstallWimPath     string
-		InstallBasename    string
-	}
-
-	imageData := make([]ImageData, len(images))
-	for i, img := range images {
-		cacheDir := strings.TrimSuffix(img.Filename, filepath.Ext(img.Filename))
-
-		autoInstallURL := ""
-		autoInstallParam := ""
-		if img.AutoInstallEnabled && img.AutoInstallScript != "" {
-			autoInstallURL = fmt.Sprintf("http://%s:%d/autoinstall/%s?mac=${net0/mac}", s.config.ServerAddr, s.config.HTTPPort, url.PathEscape(img.Filename))
-
-			switch img.AutoInstallScriptType {
-			case "preseed":
-				autoInstallParam = fmt.Sprintf("auto=true priority=critical url=%s ", autoInstallURL)
-			case "kickstart":
-				autoInstallParam = fmt.Sprintf("inst.ks=%s ", autoInstallURL)
-			case "autoinstall":
-				autoInstallParam = fmt.Sprintf("autoinstall ds=nocloud-net;s=%s/ ", autoInstallURL)
-			case "autounattend":
-				autoInstallParam = ""
-			default:
-				autoInstallParam = fmt.Sprintf("autoinstall=%s ", autoInstallURL)
-			}
-		}
-
-		installBasename := "install.wim"
-		if img.InstallWimPath != "" && strings.Contains(strings.ToLower(img.InstallWimPath), ".esd") {
-			installBasename = "install.esd"
-		}
-
-		imageData[i] = ImageData{
-			Name:               img.Name,
-			Filename:           img.Filename,
-			EncodedFilename:    url.PathEscape(img.Filename),
-			SizeStr:            formatBytes(img.Size),
-			BootMethod:         img.BootMethod,
-			Extracted:          img.Extracted,
-			BootParams:         img.BootParams,
-			CacheDir:           url.PathEscape(cacheDir),
-			Distro:             img.Distro,
-			AutoInstallEnabled: img.AutoInstallEnabled,
-			AutoInstallURL:     autoInstallURL,
-			AutoInstallParam:   autoInstallParam,
-			SquashfsPath:       img.SquashfsPath,
-			NetbootAvailable:   img.NetbootAvailable,
-			InstallWimPath:     img.InstallWimPath,
-			InstallBasename:    installBasename,
-		}
-	}
-
-	data := struct {
-		Images     []ImageData
-		ServerAddr string
-		HTTPPort   int
-		MAC        string
-	}{
-		Images:     imageData,
-		ServerAddr: s.config.ServerAddr,
-		HTTPPort:   s.config.HTTPPort,
-		MAC:        macAddress,
-	}
-
-	var buf bytes.Buffer
-	t.Execute(&buf, data)
-	return buf.String()
 }
 
 func (s *Server) handleListISOs(w http.ResponseWriter, r *http.Request) {
@@ -2096,18 +1992,56 @@ func (s *Server) handleAutoInstallScript(w http.ResponseWriter, r *http.Request)
 		return
 	}
 
+	doc := "user-data"
+	mac := ""
+	if idx := strings.LastIndex(path, "/mac/"); idx >= 0 {
+		rest := strings.TrimSuffix(path[idx+len("/mac/"):], "/")
+		path = path[:idx]
+		parts := strings.SplitN(rest, "/", 2)
+		mac = parts[0]
+		if len(parts) == 2 && parts[1] != "" {
+			doc = parts[1]
+		}
+	}
+	if mac == "" {
+		mac = r.URL.Query().Get("mac")
+	}
+	mac = strings.ToLower(strings.ReplaceAll(mac, "-", ":"))
+
 	image, err := s.config.Storage.GetImage(path)
 	if err != nil || image == nil {
 		http.Error(w, "Image not found", http.StatusNotFound)
 		return
 	}
 
-	mac := strings.ToLower(strings.ReplaceAll(r.URL.Query().Get("mac"), "-", ":"))
 	var client *models.Client
 	if mac != "" {
 		if c, err := s.config.Storage.GetClient(mac); err == nil {
 			client = c
 		}
+	}
+
+	switch doc {
+	case "meta-data":
+		instanceID := strings.ReplaceAll(mac, ":", "-")
+		if instanceID == "" {
+			instanceID = "unknown"
+		}
+		md := fmt.Sprintf("instance-id: iid-%s\n", instanceID)
+		if client != nil && client.Name != "" {
+			md += fmt.Sprintf("local-hostname: %s\n", client.Name)
+		}
+		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+		w.Write([]byte(md))
+		return
+	case "vendor-data":
+		w.Header().Set("Content-Type", "text/yaml; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		return
+	case "user-data":
+	default:
+		http.Error(w, "Unknown seed document", http.StatusNotFound)
+		return
 	}
 
 	script, scriptType, source, err := s.resolveAutoInstallScript(image, client)
@@ -2198,6 +2132,14 @@ func (s *Server) resolveAutoInstallScript(image *models.Image, client *models.Cl
 	}
 
 	return "", "", "", fmt.Errorf("no auto-install configuration for this image/client")
+}
+
+func (s *Server) resolveAutoInstallType(image *models.Image, client *models.Client) string {
+	_, scriptType, _, err := s.resolveAutoInstallScript(image, client)
+	if err != nil {
+		return ""
+	}
+	return scriptType
 }
 
 func scriptTypeForPath(rel string) string {

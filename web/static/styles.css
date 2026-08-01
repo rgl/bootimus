@@ -531,6 +531,7 @@ input:focus, textarea:focus, select:focus { outline: none; border-color: var(--a
 }
 .badge-success { background: rgba(46, 204, 113, 0.10); color: var(--success); }
 .badge-danger { background: rgba(231, 76, 60, 0.10); color: var(--danger); }
+.badge-warning { background: rgba(245, 158, 11, 0.12); color: var(--warning); }
 .badge-info { background: rgba(52, 152, 219, 0.10); color: var(--info); }
 .badge-admin { background: var(--accent-light); color: var(--accent); }
 .badge-user { background: var(--bg-tertiary); color: var(--text-secondary); }
