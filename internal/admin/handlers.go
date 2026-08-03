@@ -33,6 +33,7 @@ import (
 	"bootimus/internal/storage"
 	"bootimus/internal/sysstats"
 	"bootimus/internal/tools"
+	"bootimus/internal/webhook"
 	"bootimus/internal/wim"
 	"bootimus/internal/wol"
 )
@@ -64,6 +65,7 @@ type Handler struct {
 	extractionStates   map[string]*extractionState
 	SchedulerReload    func() error
 	SchedulerRunNow    func(id uint) error
+	WebhookNotifier    *webhook.Notifier
 }
 
 type extractionState struct {

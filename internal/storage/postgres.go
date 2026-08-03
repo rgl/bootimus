@@ -83,6 +83,8 @@ func (s *PostgresStore) AutoMigrate() error {
 	if err := s.db.AutoMigrate(
 		&models.User{},
 		&models.ClientGroup{},
+		&models.NodeImage{},
+		&models.Cluster{},
 		&models.Client{},
 		&models.ImageGroup{},
 		&models.Image{},
@@ -235,7 +237,7 @@ func (s *PostgresStore) CreateClient(client *models.Client) error {
 func (s *PostgresStore) UpdateClient(mac string, client *models.Client) error {
 	return s.db.Model(&models.Client{}).Where("mac_address = ?", mac).
 		Select("Name", "Description", "Enabled", "ShowPublicImages", "BootloaderSet", "Static", "ClientGroupID",
-			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "UpdatedAt").
+			"IPMIHost", "IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
 		Updates(client).Error
 }
 
@@ -959,7 +961,7 @@ func (s *PostgresStore) CreateClientGroup(group *models.ClientGroup) error {
 func (s *PostgresStore) UpdateClientGroup(id uint, group *models.ClientGroup) error {
 	return s.db.Model(&models.ClientGroup{}).Where("id = ?", id).
 		Select("Name", "Description", "Enabled", "AllowedImages", "BootloaderSet", "WOLBroadcastAddr", "StaggerDelayMillis",
-			"IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "UpdatedAt").
+			"IPMIPort", "IPMIUsername", "IPMIPassword", "IPMIInsecure", "AutoInstallFile", "UpdatedAt").
 		Updates(group).Error
 }
 

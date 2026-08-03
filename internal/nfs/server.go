@@ -7,6 +7,8 @@ import (
 	"net"
 	"strings"
 
+	"bootimus/internal/netbind"
+
 	billy "github.com/go-git/go-billy/v5"
 	"github.com/go-git/go-billy/v5/osfs"
 	gonfs "github.com/willscott/go-nfs"
@@ -14,21 +16,23 @@ import (
 )
 
 type Server struct {
-	rootDir  string
-	port     int
-	listener net.Listener
+	rootDir       string
+	port          int
+	bindInterface string
+	listener      net.Listener
 }
 
-func NewServer(rootDir string, port int) *Server {
+func NewServer(rootDir string, port int, bindInterface string) *Server {
 	return &Server{
-		rootDir: rootDir,
-		port:    port,
+		rootDir:       rootDir,
+		port:          port,
+		bindInterface: bindInterface,
 	}
 }
 
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.port)
-	listener, err := net.Listen("tcp", addr)
+	listener, err := netbind.Listen(s.bindInterface, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to start NFS server: %w", err)
 	}

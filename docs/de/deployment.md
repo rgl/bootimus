@@ -441,6 +441,7 @@ http_port: 8080
 admin_port: 8081
 data_dir: ./data          # Basis-Daten-Verzeichnis
 server_addr: ""           # Wird auto-erkannt, wenn leer
+bind_interface: ""        # Bindet alle Listener an eine Netzwerkkarte, z. B. eth0 (nur Linux; alle Schnittstellen, wenn leer)
 
 # Datenbank-Konfiguration (optional)
 # Wenn kein db.host angegeben ist, wird automatisch SQLite verwendet

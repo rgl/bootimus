@@ -441,6 +441,7 @@ http_port: 8080
 admin_port: 8081
 data_dir: ./data          # Base data directory
 server_addr: ""           # Auto-detected if not specified
+bind_interface: ""        # Lie toutes les écoutes à une seule carte réseau, p. ex. eth0 (Linux uniquement ; toutes les interfaces si non spécifié)
 
 # Database configuration (optional)
 # If no db.host is specified, SQLite is used automatically

@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"bootimus/internal/metrics"
+	"bootimus/internal/netbind"
 
 	"github.com/insomniacslk/dhcp/dhcpv4"
 	"github.com/insomniacslk/dhcp/iana"
@@ -21,6 +22,7 @@ const (
 
 type Config struct {
 	ServerIP      net.IP
+	Interface     string
 	BootfileBIOS  string
 	BootfileUEFI  string
 	BootfileARM64 string
@@ -40,11 +42,19 @@ type Server struct {
 
 func NewServer(cfg Config) (*Server, error) {
 	if cfg.ServerIP == nil {
-		ip, err := defaultServerIP()
-		if err != nil {
-			return nil, fmt.Errorf("determine server IP: %w", err)
+		if cfg.Interface != "" {
+			ip, err := netbind.InterfaceIPv4(cfg.Interface)
+			if err != nil {
+				return nil, fmt.Errorf("determine server IP: %w", err)
+			}
+			cfg.ServerIP = ip
+		} else {
+			ip, err := defaultServerIP()
+			if err != nil {
+				return nil, fmt.Errorf("determine server IP: %w", err)
+			}
+			cfg.ServerIP = ip
 		}
-		cfg.ServerIP = ip
 	}
 	if cfg.BootfileBIOS == "" {
 		cfg.BootfileBIOS = DefaultBootfileBIOS
@@ -59,7 +69,7 @@ func NewServer(cfg Config) (*Server, error) {
 }
 
 func (s *Server) Start() error {
-	conn, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 67})
+	conn, err := netbind.ListenUDP(s.cfg.Interface, "udp4", "0.0.0.0:67")
 	if err != nil {
 		return fmt.Errorf("listen UDP/67: %w (needs root or CAP_NET_BIND_SERVICE)", err)
 	}
@@ -69,7 +79,7 @@ func (s *Server) Start() error {
 	}
 	s.conn = conn
 
-	conn4011, err := net.ListenUDP("udp4", &net.UDPAddr{IP: net.IPv4zero, Port: 4011})
+	conn4011, err := netbind.ListenUDP(s.cfg.Interface, "udp4", "0.0.0.0:4011")
 	if err != nil {
 		conn.Close()
 		return fmt.Errorf("listen UDP/4011: %w", err)

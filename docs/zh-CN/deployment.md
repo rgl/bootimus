@@ -441,6 +441,7 @@ http_port: 8080
 admin_port: 8081
 data_dir: ./data          # Base data directory
 server_addr: ""           # Auto-detected if not specified
+bind_interface: ""        # 将所有监听绑定到单个网卡，例如 eth0（仅限 Linux；未指定时监听所有接口）
 
 # Database configuration (optional)
 # If no db.host is specified, SQLite is used automatically
