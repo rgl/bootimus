@@ -441,6 +441,7 @@ http_port: 8080
 admin_port: 8081
 data_dir: ./data          # Base data directory
 server_addr: ""           # Auto-detected if not specified
+bind_interface: ""        # Vincula todos los servicios a una sola tarjeta de red, p. ej. eth0 (solo Linux; todas las interfaces si no se especifica)
 
 # Database configuration (optional)
 # If no db.host is specified, SQLite is used automatically

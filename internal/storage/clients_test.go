@@ -123,3 +123,65 @@ func TestAutoMigratePurgesLegacySoftDeletedClients(t *testing.T) {
 		t.Fatalf("CreateClient after purge: %v", err)
 	}
 }
+
+func TestUpdateClientPersistsAutoInstallFile(t *testing.T) {
+	store := newTestStore(t)
+	mac := "aa:bb:cc:dd:ee:03"
+
+	if err := store.CreateClient(&models.Client{MACAddress: mac, Name: "node"}); err != nil {
+		t.Fatalf("CreateClient: %v", err)
+	}
+
+	if err := store.UpdateClient(mac, &models.Client{Name: "node", AutoInstallFile: "ubuntu/user-data.yaml"}); err != nil {
+		t.Fatalf("UpdateClient: %v", err)
+	}
+	client, err := store.GetClient(mac)
+	if err != nil {
+		t.Fatalf("GetClient: %v", err)
+	}
+	if client.AutoInstallFile != "ubuntu/user-data.yaml" {
+		t.Fatalf("expected auto install file to persist, got %q", client.AutoInstallFile)
+	}
+
+	if err := store.UpdateClient(mac, &models.Client{Name: "node"}); err != nil {
+		t.Fatalf("UpdateClient clear: %v", err)
+	}
+	client, err = store.GetClient(mac)
+	if err != nil {
+		t.Fatalf("GetClient after clear: %v", err)
+	}
+	if client.AutoInstallFile != "" {
+		t.Fatalf("expected auto install file to clear, got %q", client.AutoInstallFile)
+	}
+}
+
+func TestUpdateClientGroupPersistsAutoInstallFile(t *testing.T) {
+	store := newTestStore(t)
+
+	group := &models.ClientGroup{Name: "fleet"}
+	if err := store.CreateClientGroup(group); err != nil {
+		t.Fatalf("CreateClientGroup: %v", err)
+	}
+
+	if err := store.UpdateClientGroup(group.ID, &models.ClientGroup{Name: "fleet", AutoInstallFile: "debian/preseed.cfg"}); err != nil {
+		t.Fatalf("UpdateClientGroup: %v", err)
+	}
+	got, err := store.GetClientGroup(group.ID)
+	if err != nil {
+		t.Fatalf("GetClientGroup: %v", err)
+	}
+	if got.AutoInstallFile != "debian/preseed.cfg" {
+		t.Fatalf("expected group auto install file to persist, got %q", got.AutoInstallFile)
+	}
+
+	if err := store.UpdateClientGroup(group.ID, &models.ClientGroup{Name: "fleet"}); err != nil {
+		t.Fatalf("UpdateClientGroup clear: %v", err)
+	}
+	got, err = store.GetClientGroup(group.ID)
+	if err != nil {
+		t.Fatalf("GetClientGroup after clear: %v", err)
+	}
+	if got.AutoInstallFile != "" {
+		t.Fatalf("expected group auto install file to clear, got %q", got.AutoInstallFile)
+	}
+}

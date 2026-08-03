@@ -45,6 +45,7 @@ func init() {
 	rootCmd.PersistentFlags().Int("nfs-port", 2049, "NFS server port (also used as mountport)")
 	rootCmd.PersistentFlags().String("data-dir", "./data", "Base data directory (subdirs: isos/, bootloaders/)")
 	rootCmd.PersistentFlags().String("server-addr", "", "Server IP address (auto-detected if not specified)")
+	rootCmd.PersistentFlags().String("bind-interface", "", "Network interface to bind all listeners to, e.g. eth0 (Linux only; all interfaces if not specified)")
 
 	rootCmd.PersistentFlags().String("db-host", "", "PostgreSQL host (if empty, uses SQLite)")
 	rootCmd.PersistentFlags().Int("db-port", 5432, "PostgreSQL port")
@@ -85,6 +86,7 @@ func init() {
 	viper.BindPFlag("nfs_port", rootCmd.PersistentFlags().Lookup("nfs-port"))
 	viper.BindPFlag("data_dir", rootCmd.PersistentFlags().Lookup("data-dir"))
 	viper.BindPFlag("server_addr", rootCmd.PersistentFlags().Lookup("server-addr"))
+	viper.BindPFlag("bind_interface", rootCmd.PersistentFlags().Lookup("bind-interface"))
 	viper.BindPFlag("db.host", rootCmd.PersistentFlags().Lookup("db-host"))
 	viper.BindPFlag("db.port", rootCmd.PersistentFlags().Lookup("db-port"))
 	viper.BindPFlag("db.user", rootCmd.PersistentFlags().Lookup("db-user"))

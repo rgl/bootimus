@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"bootimus/internal/netbind"
 )
 
 const (
@@ -30,11 +32,12 @@ const (
 )
 
 type Server struct {
-	isoDir   string
-	port     int
-	listener net.Listener
-	mu       sync.RWMutex
-	clients  map[string]*Client
+	isoDir        string
+	port          int
+	bindInterface string
+	listener      net.Listener
+	mu            sync.RWMutex
+	clients       map[string]*Client
 }
 
 type Client struct {
@@ -44,17 +47,18 @@ type Client struct {
 	isoName  string
 }
 
-func NewServer(isoDir string, port int) *Server {
+func NewServer(isoDir string, port int, bindInterface string) *Server {
 	return &Server{
-		isoDir:  isoDir,
-		port:    port,
-		clients: make(map[string]*Client),
+		isoDir:        isoDir,
+		port:          port,
+		bindInterface: bindInterface,
+		clients:       make(map[string]*Client),
 	}
 }
 
 func (s *Server) Start() error {
 	addr := fmt.Sprintf(":%d", s.port)
-	listener, err := net.Listen("tcp", addr)
+	listener, err := netbind.Listen(s.bindInterface, "tcp", addr)
 	if err != nil {
 		return fmt.Errorf("failed to start NBD server: %w", err)
 	}
