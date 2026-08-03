@@ -20,6 +20,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"text/template"
 	"time"
 
 	"bootimus/bootloaders"
@@ -189,8 +190,19 @@ func buildStartnetScript(serverAddr, shareName string, smbPort, httpPort int, is
 		httpPort = 8080
 	}
 
-	base := fmt.Sprintf(`@echo off
+	// NB to use a non-default smb port, windows 11 24H2 (or later) or windows server 2025 (or later) is required.
+	// see https://learn.microsoft.com/en-us/windows-server/storage/file-server/smb-ports?tabs=command-line
+	scriptTemplate := template.Must(template.New("script").Parse(`@echo off
+setlocal EnableDelayedExpansion
+
+if exist x:\drivers (
+	echo Loading drivers...
+	reg add "HKLM\Software\Microsoft\Windows NT\CurrentVersion\UnattendSettings\PnPUnattend\DriverPaths\1" /v Path /t REG_SZ /d x:\drivers /f >nul 2>&1
+	PnPUnattend auditSystem /l
+)
+
 wpeinit
+
 rem Windows 11 24H2+ WinPE ships with insecure guest auth disabled and SMB
 rem signing required; guest sessions cannot sign, so mapping the read-only
 rem guest share fails with access denied. Re-enable guest SMB for this
@@ -208,15 +220,15 @@ ipconfig /renew >nul 2>&1
 echo Waiting for network...
 set /a TRIES=0
 :waitnet
-ping -n 1 -w 1000 %s >nul 2>&1
+ping -n 1 -w 1000 {{ .ServerAddr }} >nul 2>&1
 if not errorlevel 1 goto netready
 set /a TRIES+=1
-if %%TRIES%% geq 60 goto netfail
+if %TRIES% geq 60 goto netfail
 ping 127.0.0.1 -n 2 >nul 2>&1
 goto waitnet
 :netfail
-echo ERROR: Could not reach %s after 60 seconds.
-echo Dropping to shell. Try: ipconfig, ping %s
+echo ERROR: Could not reach {{ .ServerAddr }} after 60 seconds.
+echo Dropping to shell. Try: ipconfig, ping {{ .ServerAddr }}
 echo Type 'exit' to reboot.
 cmd.exe
 exit /b 1
@@ -227,17 +239,17 @@ set /a TRIES=0
 :mapshare
 rem Expected to fail with "System error 53" for the first few tries while the
 rem SMB client stack and the server's 445 path come up — the loop handles it.
-net use Z: \\%s\%s /persistent:no >nul 2>&1
+net use Z: \\{{ .ServerAddr }}\{{ .ShareName }} /persistent:no{{ if ne .SmbPort 445 }} /tcpport:{{ .SmbPort }}{{ end }} >nul 2>&1
 if not errorlevel 1 goto mapped
 set /a TRIES+=1
-if %%TRIES%% geq 30 goto mapfail
-echo Still trying to connect (%%TRIES%%/30), please wait...
+if %TRIES% geq 30 goto mapfail
+echo Still trying to connect (%TRIES%/30), please wait...
 ping 127.0.0.1 -n 4 >nul 2>&1
 goto mapshare
 :mapfail
 echo.
-echo ERROR: Failed to connect to \\%s\%s after 90 seconds (SMB port %d)
-echo Dropping to shell for debugging. Try: net use Z: \\%s\%s
+echo ERROR: Failed to connect to \\{{ .ServerAddr }}\{{ .ShareName }} after 90 seconds (SMB port {{ .SmbPort }})
+echo Dropping to shell for debugging. Try: net use Z: \\{{ .ServerAddr }}\{{ .ShareName }} /persistent:no{{ if ne .SmbPort 445 }} /tcpport:{{ .SmbPort }}{{ end }}
 echo Type 'exit' to reboot.
 cmd.exe
 exit /b 1
@@ -251,22 +263,42 @@ if not exist Z:\setup.exe (
 	cmd.exe
 	exit /b 1
 )
-`, serverAddr, serverAddr, serverAddr, serverAddr, shareName, serverAddr, shareName, smbPort, serverAddr, shareName)
 
-	launch := "echo Starting Windows Setup...\r\nZ:\\setup.exe\r\n"
-	if autoInstall {
-		launch = `copy /Y Z:\AutoUnattend.xml X:\AutoUnattend.xml >nul
-if not exist X:\AutoUnattend.xml (
+set SETUP_ARGS=
+
+if exist x:\drivers set SETUP_ARGS=!SETUP_ARGS! /installdrivers x:\drivers
+
+{{- if .AutoInstall }}
+
+if exist Z:\AutoUnattend.xml (
+	copy /Y Z:\AutoUnattend.xml X:\AutoUnattend.xml >nul
+ 	set SETUP_ARGS=!SETUP_ARGS! /unattend X:\AutoUnattend.xml
+) else (
 	echo WARNING: AutoUnattend.xml not on share, running interactive setup.
-	Z:\setup.exe
-	exit /b 0
 )
-echo Starting Windows Setup (unattended)...
-Z:\setup.exe /unattend:X:\AutoUnattend.xml
-`
-	}
 
-	return base + launch
+{{- end }}
+
+echo Starting Windows Setup...
+Z:\setup.exe !SETUP_ARGS!
+`))
+
+	var buf bytes.Buffer
+	err := scriptTemplate.Execute(&buf, &struct {
+		ServerAddr  string
+		ShareName   string
+		SmbPort     int
+		AutoInstall bool
+	}{
+		ServerAddr:  serverAddr,
+		ShareName:   shareName,
+		SmbPort:     smbPort,
+		AutoInstall: autoInstall,
+	})
+	if err != nil {
+		return ""
+	}
+	return buf.String()
 }
 
 func isRunningInDocker() bool {
