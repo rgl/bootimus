@@ -257,16 +257,17 @@ cmd.exe
 exit /b 1
 :mapped
 
-if not exist Z:\setup.exe (
+set SETUP=Z:\setup.exe
+set SETUP_ARGS=/noreboot
+
+if not exist !SETUP! (
 	echo.
-	echo ERROR: Z:\setup.exe not found on the share.
+	echo ERROR: !SETUP! not found on the share.
 	dir Z:\
 	echo Type 'exit' to reboot.
 	cmd.exe
 	exit /b 1
 )
-
-set SETUP_ARGS=
 
 if exist x:\drivers set SETUP_ARGS=!SETUP_ARGS! /installdrivers x:\drivers
 
@@ -281,8 +282,17 @@ if exist Z:\AutoUnattend.xml (
 
 {{- end }}
 
-echo Starting Windows Setup...
-Z:\setup.exe !SETUP_ARGS!
+echo Starting Windows Setup as !SETUP! !SETUP_ARGS!...
+!SETUP! !SETUP_ARGS!
+
+if !ERRORLEVEL! neq 0 (
+	echo ERROR: Windows Setup failed with exit code !ERRORLEVEL!
+	echo See https://learn.microsoft.com/en-us/windows/deployment/upgrade/log-files
+	echo Dropping to shell for debugging. Try: dir /a X:\$Windows.~BT\Sources\Panther
+	echo Type 'exit' to reboot.
+	cmd.exe
+	exit /b 1
+)
 `))
 
 	var buf bytes.Buffer
