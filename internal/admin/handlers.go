@@ -205,6 +205,11 @@ if exist x:\drivers (
 
 wpeinit
 
+echo Disabling Windows 11 hardware checks...
+reg add HKLM\SYSTEM\Setup\LabConfig /v BypassTPMCheck /t REG_DWORD /d 1
+reg add HKLM\SYSTEM\Setup\LabConfig /v BypassSecureBootCheck /t REG_DWORD /d 1
+reg add HKLM\SYSTEM\Setup\LabConfig /v BypassRAMCheck /t REG_DWORD /d 1
+
 rem Windows 11 24H2+ WinPE ships with insecure guest auth disabled and SMB
 rem signing required; guest sessions cannot sign, so mapping the read-only
 rem guest share fails with access denied. Re-enable guest SMB for this
