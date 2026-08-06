@@ -169,6 +169,7 @@ server min protocol = SMB2
 map to guest = bad user
 guest account = nobody
 load printers = no
+disable netbios = yes
 disable spoolss = yes
 # Install clients (WinPE) reboot mid-session and reconnect with the same
 # IP. Without these, smbd hangs onto the prior tree connect/oplocks and
