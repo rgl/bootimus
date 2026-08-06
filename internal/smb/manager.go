@@ -1,6 +1,7 @@
 package smb
 
 import (
+	"bytes"
 	"fmt"
 	"log"
 	"os"
@@ -8,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"text/template"
 )
 
 type Manager struct {
@@ -153,56 +155,67 @@ func (m *Manager) writeConfig() error {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	dir := m.smbDir()
-	var sb strings.Builder
-	fmt.Fprintf(&sb, `[global]
-   workgroup = WORKGROUP
-   server role = standalone server
-   log level = 1
-   log file = %s/log/smbd.log
-   smb ports = %d
-   server min protocol = SMB2
-   map to guest = bad user
-   guest account = nobody
-   load printers = no
-   disable spoolss = yes
-   # Install clients (WinPE) reboot mid-session and reconnect with the same
-   # IP. Without these, smbd hangs onto the prior tree connect/oplocks and
-   # the next net use fails. Locks aren't meaningful for a read-only share.
-   oplocks = no
-   kernel oplocks = no
-   level2 oplocks = no
-   strict locking = no
-   deadtime = 1
-   # Windows sends VC=0 on session setup after a reboot. Without this, smbd
-   # keeps the prior session from the same client IP alive and refuses the
-   # new one. This is the specific fix for "net use fails after VM reboot".
-   reset on zero vc = yes
-   lock directory = %s/locks
-   state directory = %s/state
-   cache directory = %s/cache
-   pid directory = %s/pid
-   ncalrpc dir = %s/ncalrpc
-   private dir = %s/private
-   usershare path = %s/usershares
-   acl allow execute always = yes
+	configTemplate := template.Must(template.New("config").Parse(`[global]
+workgroup = WORKGROUP
+server role = standalone server
+log level = 1
+log file = {{ .Dir }}/log/smbd.log
+smb ports = {{ .Port }}
+server min protocol = SMB2
+map to guest = bad user
+guest account = nobody
+load printers = no
+disable spoolss = yes
+# Install clients (WinPE) reboot mid-session and reconnect with the same
+# IP. Without these, smbd hangs onto the prior tree connect/oplocks and
+# the next net use fails. Locks aren't meaningful for a read-only share.
+oplocks = no
+kernel oplocks = no
+level2 oplocks = no
+strict locking = no
+deadtime = 1
+# Windows sends VC=0 on session setup after a reboot. Without this, smbd
+# keeps the prior session from the same client IP alive and refuses the
+# new one. This is the specific fix for "net use fails after VM reboot".
+reset on zero vc = yes
+lock directory = {{ .Dir }}/locks
+state directory = {{ .Dir }}/state
+cache directory = {{ .Dir }}/cache
+pid directory = {{ .Dir }}/pid
+ncalrpc dir = {{ .Dir }}/ncalrpc
+private dir = {{ .Dir }}/private
+usershare path = {{ .Dir }}/usershares
+acl allow execute always = yes
 
-`, dir, m.port, dir, dir, dir, dir, dir, dir, dir)
+{{- range $name, $path := .Shares }}
 
-	for name, path := range m.shares {
-		fmt.Fprintf(&sb, `[%s]
-   path = %s
-   read only = yes
-   guest ok = yes
-   # Guest maps to "nobody" (uid 65534), which NFS-backed data dirs commonly
-   # reject (root squash / export rules only trust specific UIDs). The
-   # bootimus process already reads these files as root, so let smbd do the
-   # same. Shares are read-only, so this only widens reads.
-   force user = root
-   browseable = yes
+[{{ $name }}]
+path = {{ $path }}
+read only = yes
+guest ok = yes
+# Guest maps to "nobody" (uid 65534), which NFS-backed data dirs commonly
+# reject (root squash / export rules only trust specific UIDs). The
+# bootimus process already reads these files as root, so let smbd do the
+# same. Shares are read-only, so this only widens reads.
+force user = root
+browseable = yes
 
-`, name, path)
+{{- end }}
+`))
+
+	var buf bytes.Buffer
+	err := configTemplate.Execute(&buf, &struct {
+		Dir    string
+		Port   int
+		Shares map[string]string
+	}{
+		Dir:    m.smbDir(),
+		Port:   m.port,
+		Shares: m.shares,
+	})
+	if err != nil {
+		return err
 	}
 
-	return os.WriteFile(m.configPath(), []byte(sb.String()), 0644)
+	return os.WriteFile(m.configPath(), buf.Bytes(), 0644)
 }
