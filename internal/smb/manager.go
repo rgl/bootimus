@@ -14,6 +14,7 @@ import (
 
 type Manager struct {
 	dataDir string
+	addr    string
 	port    int
 
 	mu     sync.RWMutex
@@ -22,9 +23,10 @@ type Manager struct {
 	cmd *exec.Cmd
 }
 
-func NewManager(dataDir string, port int) *Manager {
+func NewManager(dataDir string, addr string, port int) *Manager {
 	return &Manager{
 		dataDir: dataDir,
+		addr:    addr,
 		port:    port,
 		shares:  make(map[string]string),
 	}
@@ -160,6 +162,8 @@ workgroup = WORKGROUP
 server role = standalone server
 log level = 1
 log file = {{ .Dir }}/log/smbd.log
+bind interfaces only = yes
+interfaces = {{ .Addr }}
 smb ports = {{ .Port }}
 server min protocol = SMB2
 map to guest = bad user
@@ -206,10 +210,12 @@ browseable = yes
 	var buf bytes.Buffer
 	err := configTemplate.Execute(&buf, &struct {
 		Dir    string
+		Addr   string
 		Port   int
 		Shares map[string]string
 	}{
 		Dir:    m.smbDir(),
+		Addr:   m.addr,
 		Port:   m.port,
 		Shares: m.shares,
 	})
