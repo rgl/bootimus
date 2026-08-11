@@ -91,12 +91,28 @@ func (mb *MenuBuilder) Build() string {
 	var sb strings.Builder
 
 	sb.WriteString("#!ipxe\n\n")
-	sb.WriteString(mb.buildMainMenu())
+	if mb.hasEnabledImage(mb.nextBootImageID) {
+		sb.WriteString(fmt.Sprintf("goto iso%d\n\n", mb.nextBootImageID))
+	} else {
+		sb.WriteString(mb.buildMainMenu())
+	}
 	sb.WriteString(mb.buildGroupMenus())
 	sb.WriteString(mb.buildImageBootSections())
 	sb.WriteString(mb.buildFooter())
 
 	return sb.String()
+}
+
+func (mb *MenuBuilder) hasEnabledImage(id uint) bool {
+	if id == 0 {
+		return false
+	}
+	for i := range mb.images {
+		if mb.images[i].ID == id && mb.images[i].Enabled {
+			return true
+		}
+	}
+	return false
 }
 
 func (mb *MenuBuilder) menuTimeoutMs() int {
