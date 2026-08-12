@@ -160,6 +160,7 @@ func (s *Server) handle(conn *net.UDPConn, src *net.UDPAddr, req *dhcpv4.DHCPv4,
 		dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
 		dhcpv4.WithOption(dhcpv4.OptTFTPServerName(s.cfg.ServerIP.String())),
 		dhcpv4.WithOption(dhcpv4.OptBootFileName(bootfile)),
+		dhcpv4.WithOption(dhcpv4.OptPadding()),
 		dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, pxeVendorOptions())),
 	)
 	if err != nil {
