@@ -81,3 +81,5 @@ require (
 	golang.org/x/sys v0.46.0
 	golang.org/x/text v0.36.0
 )
+
+replace github.com/insomniacslk/dhcp => github.com/scufre/dhcp v0.0.0-20260812232647-91712ad96c16
