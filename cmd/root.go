@@ -72,6 +72,7 @@ func init() {
 	rootCmd.PersistentFlags().String("proxy-dhcp-bootfile-bios", proxydhcp.DefaultBootfileBIOS, "Bootfile advertised to legacy BIOS PXE clients (default follows the active bootloader set's manifest)")
 	rootCmd.PersistentFlags().String("proxy-dhcp-bootfile-uefi", proxydhcp.DefaultBootfileUEFI, "Bootfile advertised to UEFI x64 PXE clients (default follows the active bootloader set's manifest)")
 	rootCmd.PersistentFlags().String("proxy-dhcp-bootfile-arm64", proxydhcp.DefaultBootfileARM64, "Bootfile advertised to UEFI ARM64 PXE clients (default follows the active bootloader set's manifest)")
+	rootCmd.PersistentFlags().Bool("proxy-dhcp-no-bootfile-option", false, "Disable advertising the bootfile name using a DHCP option (for buggy/old clients)")
 
 	rootCmd.PersistentFlags().Bool("windows-smb", false, "Enable Samba share for unattended Windows PXE installs (requires smbd in PATH)")
 	rootCmd.PersistentFlags().Int("windows-smb-port", 445, "SMB port (Windows 'net use' always uses 445; override only for testing)")
@@ -112,6 +113,7 @@ func init() {
 	viper.BindPFlag("proxy_dhcp.bootfile_bios", rootCmd.PersistentFlags().Lookup("proxy-dhcp-bootfile-bios"))
 	viper.BindPFlag("proxy_dhcp.bootfile_uefi", rootCmd.PersistentFlags().Lookup("proxy-dhcp-bootfile-uefi"))
 	viper.BindPFlag("proxy_dhcp.bootfile_arm64", rootCmd.PersistentFlags().Lookup("proxy-dhcp-bootfile-arm64"))
+	viper.BindPFlag("proxy_dhcp.no_bootfile_option", rootCmd.PersistentFlags().Lookup("proxy-dhcp-no-bootfile-option"))
 
 	viper.BindPFlag("windows_smb.enabled", rootCmd.PersistentFlags().Lookup("windows-smb"))
 	viper.BindPFlag("windows_smb.port", rootCmd.PersistentFlags().Lookup("windows-smb-port"))

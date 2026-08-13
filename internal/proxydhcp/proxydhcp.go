@@ -21,11 +21,12 @@ const (
 )
 
 type Config struct {
-	ServerIP      net.IP
-	Interface     string
-	BootfileBIOS  string
-	BootfileUEFI  string
-	BootfileARM64 string
+	ServerIP        net.IP
+	Interface       string
+	BootfileBIOS    string
+	BootfileUEFI    string
+	BootfileARM64   string
+	NoBootfileption bool
 	// Bootfiles, when set, is consulted on every request; any non-empty value
 	// it returns overrides the static Bootfile* fields. This lets the server
 	// switch bootloader sets at runtime without restarting proxyDHCP.
@@ -153,16 +154,18 @@ func (s *Server) handle(conn *net.UDPConn, src *net.UDPAddr, req *dhcpv4.DHCPv4,
 	}
 
 	bootfile := s.bootfileFor(req)
-	resp, err := dhcpv4.NewReplyFromRequest(req,
+	modifiers := []dhcpv4.Modifier{
 		dhcpv4.WithMessageType(respType),
 		dhcpv4.WithServerIP(s.cfg.ServerIP),
 		dhcpv4.WithOption(dhcpv4.OptServerIdentifier(s.cfg.ServerIP)),
 		dhcpv4.WithOption(dhcpv4.OptClassIdentifier("PXEClient")),
 		dhcpv4.WithOption(dhcpv4.OptTFTPServerName(s.cfg.ServerIP.String())),
-		dhcpv4.WithOption(dhcpv4.OptBootFileName(bootfile)),
-		dhcpv4.WithOption(dhcpv4.OptPadding()),
 		dhcpv4.WithOption(dhcpv4.OptGeneric(dhcpv4.OptionVendorSpecificInformation, pxeVendorOptions())),
-	)
+	}
+	if !s.cfg.NoBootfileption {
+		modifiers = append(modifiers, dhcpv4.WithOption(dhcpv4.OptBootFileName(bootfile)))
+	}
+	resp, err := dhcpv4.NewReplyFromRequest(req, modifiers...)
 	if err != nil {
 		log.Printf("proxyDHCP: build reply: %v", err)
 		return
