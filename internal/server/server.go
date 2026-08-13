@@ -91,10 +91,11 @@ type Config struct {
 	WOLBroadcastAddr string
 	ProfileManager   *profiles.Manager
 
-	ProxyDHCPEnabled      bool
-	ProxyDHCPBootfileBIOS string
-	ProxyDHCPBootfileUEFI string
-	ProxyDHCPBootfileARM  string
+	ProxyDHCPEnabled          bool
+	ProxyDHCPBootfileBIOS     string
+	ProxyDHCPBootfileUEFI     string
+	ProxyDHCPBootfileARM      string
+	ProxyDHCPNoBootfileOption bool
 
 	WindowsSMBEnabled bool
 	WindowsSMBPort    int
@@ -591,12 +592,13 @@ func (s *Server) Start() error {
 
 	if s.config.ProxyDHCPEnabled {
 		pd, err := proxydhcp.NewServer(proxydhcp.Config{
-			ServerIP:      net.ParseIP(s.config.ServerAddr),
-			Interface:     s.config.BindInterface,
-			BootfileBIOS:  s.config.ProxyDHCPBootfileBIOS,
-			BootfileUEFI:  s.config.ProxyDHCPBootfileUEFI,
-			BootfileARM64: s.config.ProxyDHCPBootfileARM,
-			Bootfiles:     s.proxyDHCPBootfiles,
+			ServerIP:        net.ParseIP(s.config.ServerAddr),
+			Interface:       s.config.BindInterface,
+			BootfileBIOS:    s.config.ProxyDHCPBootfileBIOS,
+			BootfileUEFI:    s.config.ProxyDHCPBootfileUEFI,
+			BootfileARM64:   s.config.ProxyDHCPBootfileARM,
+			NoBootfileption: s.config.ProxyDHCPNoBootfileOption,
+			Bootfiles:       s.proxyDHCPBootfiles,
 		})
 		if err != nil {
 			log.Printf("proxyDHCP: failed to construct server: %v", err)
