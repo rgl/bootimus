@@ -16,6 +16,44 @@ func testMenuBuilder(types map[uint]string) *MenuBuilder {
 	}
 }
 
+func TestBuildNextBootBypassesMenuForGroupedImage(t *testing.T) {
+	groupID := uint(3)
+	mb := testMenuBuilder(map[uint]string{7: "kickstart"})
+	mb.nextBootImageID = 7
+	mb.images = []models.Image{
+		{
+			ID:         7,
+			Name:       "AlmaLinux",
+			Filename:   "almalinux.iso",
+			Enabled:    true,
+			BootMethod: "kernel",
+			Distro:     "alma",
+			GroupID:    &groupID,
+		},
+	}
+
+	out := mb.Build()
+	if !strings.HasPrefix(out, "#!ipxe\n\ngoto iso7\n\n") {
+		t.Fatalf("expected next boot to jump directly to the image, got:\n%s", out)
+	}
+	if !strings.Contains(out, ":iso7\n") {
+		t.Fatalf("expected next boot image section to be emitted, got:\n%s", out)
+	}
+	if strings.Contains(out, ":start\nmenu ") {
+		t.Fatalf("expected next boot to bypass the interactive menu, got:\n%s", out)
+	}
+}
+
+func TestBuildMissingNextBootFallsBackToMenu(t *testing.T) {
+	mb := testMenuBuilder(nil)
+	mb.nextBootImageID = 99
+
+	out := mb.Build()
+	if !strings.Contains(out, ":start\nmenu ") {
+		t.Fatalf("expected an unavailable next boot image to fall back to the menu, got:\n%s", out)
+	}
+}
+
 func TestBuildKernelBootSectionAutoInstallParams(t *testing.T) {
 	img := &models.Image{
 		ID:         7,
