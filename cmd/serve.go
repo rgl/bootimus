@@ -210,10 +210,11 @@ func runServe(cmd *cobra.Command, args []string) {
 		WOLBroadcastAddr: viper.GetString("wol_broadcast_addr"),
 		ProfileManager:   profileMgr,
 
-		ProxyDHCPEnabled:      viper.GetBool("proxy_dhcp.enabled"),
-		ProxyDHCPBootfileBIOS: viper.GetString("proxy_dhcp.bootfile_bios"),
-		ProxyDHCPBootfileUEFI: viper.GetString("proxy_dhcp.bootfile_uefi"),
-		ProxyDHCPBootfileARM:  viper.GetString("proxy_dhcp.bootfile_arm64"),
+		ProxyDHCPEnabled:          viper.GetBool("proxy_dhcp.enabled"),
+		ProxyDHCPBootfileBIOS:     viper.GetString("proxy_dhcp.bootfile_bios"),
+		ProxyDHCPBootfileUEFI:     viper.GetString("proxy_dhcp.bootfile_uefi"),
+		ProxyDHCPBootfileARM:      viper.GetString("proxy_dhcp.bootfile_arm64"),
+		ProxyDHCPNoBootfileOption: viper.GetBool("proxy_dhcp.no_bootfile_option"),
 
 		WindowsSMBEnabled: viper.GetBool("windows_smb.enabled"),
 		WindowsSMBPort:    viper.GetInt("windows_smb.port"),
